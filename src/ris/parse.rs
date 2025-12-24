@@ -55,8 +55,10 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
                         }
                     }
                     tag if tag.is_author_tag() => {
-                        let author = parse_author(&content);
-                        current_citation.add_author(author);
+                        let authors = split_and_parse_authors(&content);
+                        for author in authors {
+                            current_citation.add_author(author);
+                        }
                     }
                     _ => {
                         current_citation.add_data(tag, content);
@@ -154,6 +156,53 @@ fn extract_ris_content(line: &str, line_number: usize) -> Result<String, ParseEr
             line
         )),
     ))
+}
+
+/// Split an author string into multiple authors and parse each one.
+///
+/// Handles non-standard RIS files where multiple authors are on a single AU line.
+/// Splits on:
+/// - Semicolons (`;`) - primary separator
+/// - ` & ` and ` and ` - secondary separators (with surrounding spaces)
+///
+/// Does NOT split on bare commas since "Last, First" format uses commas.
+fn split_and_parse_authors(author_str: &str) -> Vec<Author> {
+    let trimmed = author_str.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    // First split on semicolons (primary separator)
+    let segments: Vec<&str> = trimmed.split(';').collect();
+
+    let mut authors = Vec::new();
+
+    for segment in segments {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            continue;
+        }
+
+        // Then split on " & " and " and " (secondary separators)
+        let sub_segments: Vec<&str> = segment
+            .split(" & ")
+            .flat_map(|s| s.split(" and "))
+            .collect();
+
+        for sub in sub_segments {
+            let sub = sub.trim();
+            if !sub.is_empty() {
+                authors.push(parse_author(sub));
+            }
+        }
+    }
+
+    // If no splits occurred, parse as single author
+    if authors.is_empty() {
+        authors.push(parse_author(trimmed));
+    }
+
+    authors
 }
 
 /// Parse an author string into an Author struct.
@@ -318,5 +367,62 @@ ER  -"#;
     assert_eq!(author.name, "Smith");
     assert_eq!(author.given_name.as_deref(), Some("John"));
     assert!(author.affiliations.is_empty());
+    }
+
+    #[test]
+    fn test_split_authors_single() {
+        let authors = split_and_parse_authors("Smith, John");
+        assert_eq!(authors.len(), 1);
+        assert_eq!(authors[0].name, "Smith");
+    }
+
+    #[test]
+    fn test_split_authors_semicolon() {
+        let authors = split_and_parse_authors("Smith, J.; Doe, A.; Brown, B.");
+        assert_eq!(authors.len(), 3);
+        assert_eq!(authors[0].name, "Smith");
+        assert_eq!(authors[1].name, "Doe");
+        assert_eq!(authors[2].name, "Brown");
+    }
+
+    #[test]
+    fn test_split_authors_ampersand() {
+        let authors = split_and_parse_authors("Smith, J. & Doe, A.");
+        assert_eq!(authors.len(), 2);
+        assert_eq!(authors[0].name, "Smith");
+        assert_eq!(authors[1].name, "Doe");
+    }
+
+    #[test]
+    fn test_split_authors_and() {
+        let authors = split_and_parse_authors("Smith, J. and Doe, A.");
+        assert_eq!(authors.len(), 2);
+        assert_eq!(authors[0].name, "Smith");
+        assert_eq!(authors[1].name, "Doe");
+    }
+
+    #[test]
+    fn test_split_authors_mixed() {
+        let authors = split_and_parse_authors("Smith, J.; Doe, A. & Brown, B.");
+        assert_eq!(authors.len(), 3);
+        assert_eq!(authors[0].name, "Smith");
+        assert_eq!(authors[1].name, "Doe");
+        assert_eq!(authors[2].name, "Brown");
+    }
+
+    #[test]
+    fn test_split_authors_reported_issue() {
+        // The reported issue: "Abebe, T., Alemu, B., & Teshome, M"
+        // We split on " & " so get 2 authors (commas don't split)
+        let authors = split_and_parse_authors("Abebe, T., Alemu, B., & Teshome, M");
+        assert_eq!(authors.len(), 2);
+        assert_eq!(authors[0].name, "Abebe");
+        assert_eq!(authors[1].name, "Teshome");
+    }
+
+    #[test]
+    fn test_split_authors_empty() {
+        let authors = split_and_parse_authors("");
+        assert!(authors.is_empty());
     }
 }
