@@ -210,14 +210,13 @@ impl CsvConfig {
         for (field, aliases) in &self.header_map {
             for alias in aliases {
                 let alias_lower = alias.to_lowercase();
-                if let Some(existing_field) = all_aliases.get(&alias_lower) {
-                    if existing_field != field {
+                if let Some(existing_field) = all_aliases.get(&alias_lower)
+                    && existing_field != field {
                         return Err(format!(
                             "Alias '{}' is mapped to both '{}' and '{}'",
                             alias, existing_field, field
                         ));
                     }
-                }
                 all_aliases.insert(alias_lower, field.clone());
             }
         }

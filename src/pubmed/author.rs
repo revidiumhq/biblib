@@ -60,7 +60,7 @@ impl AuthorName {
 
     // not used, consider deleting?
     /// Get the name as an `AU`.
-    pub fn as_au(&self) -> Cow<str> {
+    pub fn as_au(&self) -> Cow<'_, str> {
         if self.full {
             let initials = self.first_initials();
             if initials.is_empty() {

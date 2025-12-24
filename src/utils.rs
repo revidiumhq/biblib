@@ -218,13 +218,11 @@ pub fn parse_pubmed_date(date_str: &str) -> Option<Date> {
     }
 
     // Third part should be day (if present)
-    if let Some(day_str) = parts.get(2) {
-        if let Ok(parsed_day) = day_str.parse::<u8>() {
-            if (1..=31).contains(&parsed_day) {
+    if let Some(day_str) = parts.get(2)
+        && let Ok(parsed_day) = day_str.parse::<u8>()
+            && (1..=31).contains(&parsed_day) {
                 day = Some(parsed_day);
             }
-        }
-    }
 
     Some(Date { year, month, day })
 }
@@ -259,26 +257,20 @@ pub fn parse_ris_date(date_str: &str) -> Option<Date> {
     let mut day = None;
 
     // Second part should be month (if present and not empty)
-    if let Some(month_str) = parts.get(1) {
-        if !month_str.is_empty() {
-            if let Ok(parsed_month) = month_str.parse::<u8>() {
-                if (1..=12).contains(&parsed_month) {
+    if let Some(month_str) = parts.get(1)
+        && !month_str.is_empty()
+            && let Ok(parsed_month) = month_str.parse::<u8>()
+                && (1..=12).contains(&parsed_month) {
                     month = Some(parsed_month);
                 }
-            }
-        }
-    }
 
     // Third part should be day (if present and not empty)
-    if let Some(day_str) = parts.get(2) {
-        if !day_str.is_empty() {
-            if let Ok(parsed_day) = day_str.parse::<u8>() {
-                if (1..=31).contains(&parsed_day) {
+    if let Some(day_str) = parts.get(2)
+        && !day_str.is_empty()
+            && let Ok(parsed_day) = day_str.parse::<u8>()
+                && (1..=31).contains(&parsed_day) {
                     day = Some(parsed_day);
                 }
-            }
-        }
-    }
 
     Some(Date { year, month, day })
 }

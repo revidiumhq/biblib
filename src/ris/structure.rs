@@ -77,16 +77,13 @@ impl RawRisData {
         let mut best_priority = u8::MAX;
 
         for (tag, values) in &self.data {
-            if let Some(priority) = priority_fn(tag) {
-                if priority < best_priority && !values.is_empty() {
-                    if let Some(first_value) = values.first() {
-                        if !first_value.trim().is_empty() {
+            if let Some(priority) = priority_fn(tag)
+                && priority < best_priority && !values.is_empty()
+                    && let Some(first_value) = values.first()
+                        && !first_value.trim().is_empty() {
                             best_priority = priority;
                             best_value = Some(first_value.clone());
                         }
-                    }
-                }
-            }
         }
 
         best_value
@@ -260,12 +257,11 @@ impl crate::Citation {
                 // Second pass: Extract DOI from URL fields if not already found
                 if doi.is_none() {
                     for url in &tag_urls {
-                        if url.contains("doi.org") {
-                            if let Some(extracted_doi) = crate::utils::format_doi(url) {
+                        if url.contains("doi.org")
+                            && let Some(extracted_doi) = crate::utils::format_doi(url) {
                                 doi = Some(extracted_doi);
                                 break;
                             }
-                        }
                     }
                 }
                 urls.append(&mut tag_urls);

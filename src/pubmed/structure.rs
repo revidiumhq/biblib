@@ -124,7 +124,7 @@ impl From<PubmedAuthor> for crate::Author {
     fn from(PubmedAuthor { name, affiliations }: PubmedAuthor) -> Self {
         let (given_name_opt, middle_name_opt) = name
             .given_name()
-            .map(|g| crate::utils::split_given_and_middle(g))
+            .map(crate::utils::split_given_and_middle)
             .unwrap_or((None, None));
         Self {
             name: name.last_name().to_string(),
