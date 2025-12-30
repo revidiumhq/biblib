@@ -282,4 +282,45 @@ AU  - Van Dyke MCC
         let result = parser.parse("   \n  \t  ").unwrap();
         assert_eq!(result.len(), 0);
     }
+
+    #[test]
+    fn test_doi_from_aid_field() {
+        // Test that DOI can be extracted from AID field when LID doesn't have DOI
+        let input = r#"PMID- 12345678
+TI- Test Article Title
+AID- 10.1234/aid.test [doi]
+
+"#;
+        let parser = PubMedParser::new();
+        let result = parser.parse(input).unwrap();
+        assert_eq!(result[0].doi.as_deref(), Some("10.1234/aid.test"));
+    }
+
+    #[test]
+    fn test_doi_lid_takes_precedence_over_aid() {
+        // Test that LID DOI is preferred over AID DOI
+        let input = r#"PMID- 12345678
+TI- Test Article Title
+LID- 10.1000/lid.doi [doi]
+AID- 10.1234/aid.doi [doi]
+
+"#;
+        let parser = PubMedParser::new();
+        let result = parser.parse(input).unwrap();
+        assert_eq!(result[0].doi.as_deref(), Some("10.1000/lid.doi"));
+    }
+
+    #[test]
+    fn test_doi_from_aid_with_pii_in_lid() {
+        // Test that DOI is extracted from AID when LID contains only PII
+        let input = r#"PMID- 12345678
+TI- Test Article Title
+LID- S1234-5678(23)00001-X [pii]
+AID- 10.1016/j.example.2023.01.001 [doi]
+
+"#;
+        let parser = PubMedParser::new();
+        let result = parser.parse(input).unwrap();
+        assert_eq!(result[0].doi.as_deref(), Some("10.1016/j.example.2023.01.001"));
+    }
 }

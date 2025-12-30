@@ -69,7 +69,15 @@ impl TryFrom<RawPubmedData> for crate::Citation {
                 .unwrap_or_else(Vec::new)
                 .into_iter()
                 .filter_map(parse_doi_from_lid)
-                .next(),
+                .next()
+                // Fallback to AID field if DOI not found in LID
+                .or_else(|| {
+                    data.remove(&PubmedTag::ArticleIdentifier)
+                        .unwrap_or_else(Vec::new)
+                        .into_iter()
+                        .filter_map(parse_doi_from_lid)
+                        .next()
+                }),
             pmid: data
                 .remove(&PubmedTag::PubmedUniqueIdentifier)
                 .and_then(join_if_some),
