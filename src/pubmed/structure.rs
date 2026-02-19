@@ -48,6 +48,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
                 .unwrap_or_else(Vec::new),
             title: data
                 .remove(&PubmedTag::Title)
+                .or_else(|| data.remove(&PubmedTag::BookTitle))
                 .and_then(join_if_some)
                 .ok_or_else(|| {
                     ParseError::at_line(
