@@ -17,17 +17,17 @@ For minimal builds:
 
 ```toml
 [dependencies]
-biblib = { version = "0.3.0", default-features = false, features = ["ris"] }
+biblib = { version = "0.3.2", default-features = false, features = ["ris", "regex"] }
 ```
 
 ## Supported Formats
 
-| Format | Feature | Description |
-|--------|---------|-------------|
-| RIS | `ris` | Research Information Systems format |
-| PubMed | `pubmed` | MEDLINE/PubMed `.nbib` files |
-| EndNote XML | `xml` | EndNote XML export format |
-| CSV | `csv` | Configurable delimited files |
+| Format      | Feature  | Description                         |
+| ----------- | -------- | ----------------------------------- |
+| RIS         | `ris`    | Research Information Systems format |
+| PubMed      | `pubmed` | MEDLINE/PubMed `.nbib` files        |
+| EndNote XML | `xml`    | EndNote XML export format           |
+| CSV         | `csv`    | Configurable delimited files        |
 
 All format features are enabled by default.
 
@@ -105,39 +105,41 @@ let citations = parser.parse("Article Name;Writers\nMy Paper;Smith J").unwrap();
 
 Each parsed citation contains:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `title` | `String` | Work title |
-| `authors` | `Vec<Author>` | Authors with name, given name, affiliations |
-| `journal` | `Option<String>` | Full journal name |
-| `journal_abbr` | `Option<String>` | Journal abbreviation |
-| `date` | `Option<Date>` | Year, month, day |
-| `volume` | `Option<String>` | Volume number |
-| `issue` | `Option<String>` | Issue number |
-| `pages` | `Option<String>` | Page range |
-| `doi` | `Option<String>` | Digital Object Identifier |
-| `pmid` | `Option<String>` | PubMed ID |
-| `pmc_id` | `Option<String>` | PubMed Central ID |
-| `issn` | `Vec<String>` | ISSNs |
-| `abstract_text` | `Option<String>` | Abstract |
-| `keywords` | `Vec<String>` | Keywords |
-| `urls` | `Vec<String>` | Related URLs |
-| `mesh_terms` | `Vec<String>` | MeSH terms (PubMed) |
-| `extra_fields` | `HashMap` | Additional format-specific fields |
+| Field           | Type             | Description                                 |
+| --------------- | ---------------- | ------------------------------------------- |
+| `title`         | `String`         | Work title                                  |
+| `authors`       | `Vec<Author>`    | Authors with name, given name, affiliations |
+| `journal`       | `Option<String>` | Full journal name                           |
+| `journal_abbr`  | `Option<String>` | Journal abbreviation                        |
+| `date`          | `Option<Date>`   | Year, month, day                            |
+| `volume`        | `Option<String>` | Volume number                               |
+| `issue`         | `Option<String>` | Issue number                                |
+| `pages`         | `Option<String>` | Page range                                  |
+| `doi`           | `Option<String>` | Digital Object Identifier                   |
+| `pmid`          | `Option<String>` | PubMed ID                                   |
+| `pmc_id`        | `Option<String>` | PubMed Central ID                           |
+| `issn`          | `Vec<String>`    | ISSNs                                       |
+| `abstract_text` | `Option<String>` | Abstract                                    |
+| `keywords`      | `Vec<String>`    | Keywords                                    |
+| `urls`          | `Vec<String>`    | Related URLs                                |
+| `mesh_terms`    | `Vec<String>`    | MeSH terms (PubMed)                         |
+| `extra_fields`  | `HashMap`        | Additional format-specific fields           |
 
 ## Features
 
-| Feature | Dependencies | Description |
-|---------|--------------|-------------|
-| `ris` | - | RIS format parser |
-| `pubmed` | - | PubMed/MEDLINE parser |
-| `xml` | `quick-xml` | EndNote XML parser |
-| `csv` | `csv` | CSV parser |
-| `dedupe` | `rayon`, `strsim` | Deduplication engine |
-| `regex` | `regex` | Full regex support |
-| `lite` | `regex-lite` | Lightweight regex (smaller binary) |
+| Feature  | Dependencies      | Description                        |
+| -------- | ----------------- | ---------------------------------- |
+| `ris`    | -                 | RIS format parser                  |
+| `pubmed` | -                 | PubMed/MEDLINE parser              |
+| `xml`    | `quick-xml`       | EndNote XML parser                 |
+| `csv`    | `csv`             | CSV parser                         |
+| `dedupe` | `rayon`, `strsim` | Deduplication engine               |
+| `regex`  | `regex`           | Full regex support                 |
+| `lite`   | `regex-lite`      | Lightweight regex (smaller binary) |
 
 Default: all features enabled except `lite`.
+
+> **Note:** At least one of `regex` or `lite` must always be enabled — the crate will not compile without one of them. They are mutually exclusive; do not enable both.
 
 ## Documentation
 
