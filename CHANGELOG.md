@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-20
+
+### Added
+
+- **Line numbers in all parser errors**: Every `ParseError` now carries the 1-based line number (`ParseError::line`) of the citation record that triggered the error. Previously, most conversion errors (missing title, bad date, etc.) had `line: None`. Now all parsers — RIS, PubMed, CSV, and EndNote XML — populate this field consistently.
+
+- **`SourceSpan` type**: New public struct `SourceSpan { start: usize, end: usize }` representing an inclusive-start, exclusive-end byte-offset range into the original source text. Available via `use biblib::SourceSpan`.
+
+- **`ParseError::span` field** (`Option<SourceSpan>`): Every `ParseError` optionally carries a byte-offset span covering the full citation record where the error occurred. Populated by the RIS, PubMed, and CSV parsers for all conversion errors.
+
+- **`ParseError::with_span(span)` builder method**: Attaches a `SourceSpan` to an existing `ParseError`, enabling builder-style construction.
+
+- **`diagnostics` feature** (optional dependency on [`ariadne`](https://crates.io/crates/ariadne)): Enable with `features = ["diagnostics"]` to unlock:
+  - `ParseError::to_diagnostic(filename: &str, source: &str) -> String` — renders a human-readable diagnostic with ANSI colour highlighting, source context lines, and underlined error spans using the ariadne crate.
+  - `parse_with_diagnostics(parser, input, filename)` — convenience free function that calls any `CitationParser` and on failure returns `Err(String)` containing the rendered diagnostic.
+
+### Changed
+
+- **`ParseError` struct layout** (BREAKING for struct-literal construction): A new `span: Option<SourceSpan>` field has been inserted between `column` and `format`. Any code constructing `ParseError` with struct literal syntax (i.e. `ParseError { line: …, column: …, format: …, error: … }`) must add `span: None`. Code using the provided constructors (`at_line`, `at_position`, `without_position`, `new`) is unaffected.
+
+### Migration Guide
+
+#### `ParseError` struct literal construction
+
+If you construct `ParseError` with a struct literal, add the new `span` field:
+
+```rust
+// Before (0.3.x):
+ParseError { line: Some(1), column: None, format: CitationFormat::Ris, error: ValueError::Syntax("…".into()) }
+
+// After (0.4.x):
+ParseError { line: Some(1), column: None, span: None, format: CitationFormat::Ris, error: ValueError::Syntax("…".into()) }
+```
+
+Using the constructors instead avoids this:
+
+```rust
+// No change needed:
+ParseError::at_line(1, CitationFormat::Ris, ValueError::Syntax("…".into()))
+```
+
+#### Opt-in rich diagnostics
+
+```toml
+[dependencies]
+biblib = { version = "0.4", features = ["diagnostics"] }
+```
+
+```rust
+use biblib::{CitationParser, RisParser, parse_with_diagnostics};
+
+let source = std::fs::read_to_string("citations.ris")?;
+match parse_with_diagnostics(&RisParser::new(), &source, "citations.ris") {
+    Ok(citations) => println!("Parsed {} citations", citations.len()),
+    Err(diagnostic) => eprintln!("{}", diagnostic), // pretty, coloured output
+}
+```
+
 ## [0.3.2] - 2025-12-30
 
 ### Added
@@ -15,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Multi-author parsing for RIS**: The RIS parser now handles multiple authors on a single AU line, splitting on semicolons (`;`), ampersands (` & `), and the word ` and `
+- **Multi-author parsing for RIS**: The RIS parser now handles multiple authors on a single AU line, splitting on semicolons (`;`), ampersands (`&`), and the word `and`
 - **PARSING_GUIDE.md**: Comprehensive documentation for all format parsers (RIS, PubMed, EndNote XML, CSV) including tag mappings, date formats, and data transformations
 - **DEDUPLICATION_GUIDE.md**: Detailed documentation of the deduplication algorithm, similarity thresholds, normalization rules, and configuration options
 

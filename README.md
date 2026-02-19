@@ -10,14 +10,14 @@ A Rust library for parsing and deduplicating academic citations.
 
 ```toml
 [dependencies]
-biblib = "0.3.0"
+biblib = "0.4"
 ```
 
 For minimal builds:
 
 ```toml
 [dependencies]
-biblib = { version = "0.3.2", default-features = false, features = ["ris", "regex"] }
+biblib = { version = "0.4", default-features = false, features = ["ris", "regex"] }
 ```
 
 ## Supported Formats
@@ -127,19 +127,64 @@ Each parsed citation contains:
 
 ## Features
 
-| Feature  | Dependencies      | Description                        |
-| -------- | ----------------- | ---------------------------------- |
-| `ris`    | -                 | RIS format parser                  |
-| `pubmed` | -                 | PubMed/MEDLINE parser              |
-| `xml`    | `quick-xml`       | EndNote XML parser                 |
-| `csv`    | `csv`             | CSV parser                         |
-| `dedupe` | `rayon`, `strsim` | Deduplication engine               |
-| `regex`  | `regex`           | Full regex support                 |
-| `lite`   | `regex-lite`      | Lightweight regex (smaller binary) |
+| Feature       | Dependencies      | Description                                       |
+| ------------- | ----------------- | ------------------------------------------------- |
+| `ris`         | -                 | RIS format parser                                 |
+| `pubmed`      | -                 | PubMed/MEDLINE parser                             |
+| `xml`         | `quick-xml`       | EndNote XML parser                                |
+| `csv`         | `csv`             | CSV parser                                        |
+| `dedupe`      | `rayon`, `strsim` | Deduplication engine                              |
+| `regex`       | `regex`           | Full regex support                                |
+| `lite`        | `regex-lite`      | Lightweight regex (smaller binary)                |
+| `diagnostics` | `ariadne`         | Pretty, coloured error output with source context |
 
-Default: all features enabled except `lite`.
+Default: all features enabled except `lite` and `diagnostics`.
 
 > **Note:** At least one of `regex` or `lite` must always be enabled — the crate will not compile without one of them. They are mutually exclusive; do not enable both.
+
+## Error Handling
+
+All parse errors carry a 1-based line number and, where available, a byte-offset span pointing to the problematic citation record:
+
+```rust
+use biblib::{CitationParser, RisParser, ValueError};
+
+match RisParser::new().parse(input) {
+    Ok(citations) => println!("Parsed {} citations", citations.len()),
+    Err(e) => {
+        eprintln!("Parse error: {}", e); // includes "at line N" when known
+        if let ValueError::MissingValue { key, .. } = &e.error {
+            eprintln!("Missing required field: {}", key);
+        }
+    }
+}
+```
+
+### Pretty diagnostics (optional)
+
+Enable the `diagnostics` feature for human-friendly, coloured output powered by [ariadne](https://crates.io/crates/ariadne):
+
+```toml
+[dependencies]
+biblib = { version = "0.4", features = ["diagnostics"] }
+```
+
+```rust
+use biblib::{RisParser, parse_with_diagnostics};
+
+let source = std::fs::read_to_string("citations.ris")?;
+match parse_with_diagnostics(&RisParser::new(), &source, "citations.ris") {
+    Ok(citations) => println!("Parsed {} citations", citations.len()),
+    Err(diagnostic) => eprintln!("{}", diagnostic),
+    // Error: Error in RIS format at line 5: Missing value for TI
+    //    ╭─[citations.ris:5:1]
+    //  5 │ TY  - JOUR
+    //    │ ──────────── Missing value for TI
+    //    ╰───
+}
+```
+
+You can also call `error.to_diagnostic(filename, source)` directly on any `ParseError`.
 
 ## Documentation
 
