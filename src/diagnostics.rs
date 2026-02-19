@@ -125,14 +125,15 @@ mod tests {
         CitationFormat,
     };
 
+    // ── Unit tests for ParseError::to_diagnostic ────────────────────────────
+
     #[test]
     fn test_to_diagnostic_with_span() {
         let source = "TY  - JOUR\nTI  - Hello\nER  -\n";
         let err = ParseError::at_line(1, CitationFormat::Ris, ValueError::Syntax("oops".into()))
             .with_span(SourceSpan::new(0, 10));
-
         let diag = err.to_diagnostic("test.ris", source);
-        assert!(diag.contains("test.ris"));
+        assert!(diag.contains("test.ris"), "filename should appear in output");
     }
 
     #[test]
@@ -141,14 +142,12 @@ mod tests {
         let err = ParseError::at_line(
             2,
             CitationFormat::Ris,
-            ValueError::MissingValue {
-                field: "title",
-                key: "TI",
-            },
+            ValueError::MissingValue { field: "title", key: "TI" },
         );
-
         let diag = err.to_diagnostic("test.ris", source);
         assert!(diag.contains("test.ris"));
+        // ariadne renders line numbers — the output should reference line 2
+        assert!(diag.contains('2'), "line 2 should appear somewhere in output");
     }
 
     #[test]
@@ -158,9 +157,76 @@ mod tests {
             CitationFormat::Ris,
             ValueError::Syntax("bad input".into()),
         );
-
-        // Should not panic even without position info
+        // Must not panic even without position info
         let diag = err.to_diagnostic("test.ris", source);
         assert!(diag.contains("test.ris"));
+    }
+
+    #[test]
+    fn test_to_diagnostic_contains_error_message() {
+        let source = "TY  - JOUR\nER  -\n";
+        let err = ParseError::at_line(
+            1,
+            CitationFormat::Ris,
+            ValueError::MissingValue { field: "title", key: "TI" },
+        )
+        .with_span(SourceSpan::new(0, 10));
+        let diag = err.to_diagnostic("citations.ris", source);
+        // The ValueError display text must appear in the output
+        assert!(diag.contains("TI"), "key 'TI' should appear in the diagnostic");
+    }
+
+    // ── Integration tests: use actual parsers ────────────────────────────────
+
+    #[test]
+    fn test_ris_missing_title_diagnostic() {
+        use crate::{RisParser, parse_with_diagnostics};
+        let source = "TY  - JOUR\nAU  - Smith, John\nER  -\n";
+        let result = parse_with_diagnostics(&RisParser::new(), source, "input.ris");
+        assert!(result.is_err(), "should fail: no title");
+        let diag = result.unwrap_err();
+        assert!(diag.contains("input.ris"), "filename should appear in output");
+        // The underlying error message includes "TI" — verify it surfaces
+        assert!(diag.contains("TI"), "missing-field key 'TI' should appear in output");
+        assert!(!diag.is_empty());
+    }
+
+    #[test]
+    fn test_pubmed_missing_title_diagnostic() {
+        use crate::{PubMedParser, parse_with_diagnostics};
+        let source = "PMID- 123\nAU  - Smith J\n\n";
+        let result = parse_with_diagnostics(&PubMedParser::new(), source, "refs.nbib");
+        assert!(result.is_err());
+        let diag = result.unwrap_err();
+        assert!(diag.contains("refs.nbib"));
+    }
+
+    #[test]
+    fn test_csv_missing_title_diagnostic() {
+        use crate::{csv::CsvParser, parse_with_diagnostics};
+        let source = "Title,Author\n,Smith J";
+        let result = parse_with_diagnostics(&CsvParser::new(), source, "refs.csv");
+        assert!(result.is_err());
+        let diag = result.unwrap_err();
+        assert!(diag.contains("refs.csv"));
+    }
+
+    /// Smoke test: a valid parse must NOT produce a diagnostic.
+    #[test]
+    fn test_valid_input_no_diagnostic() {
+        use crate::{RisParser, parse_with_diagnostics};
+        let source = "TY  - JOUR\nTI  - Good Paper\nER  -\n";
+        let result = parse_with_diagnostics(&RisParser::new(), source, "good.ris");
+        assert!(result.is_ok(), "valid input should succeed");
+        assert_eq!(result.unwrap().len(), 1);
+    }
+
+    /// Output must contain the message from the underlying error.
+    #[test]
+    fn test_diagnostic_contains_format_name() {
+        use crate::{RisParser, parse_with_diagnostics};
+        let source = "TY  - JOUR\nAU  - Smith\nER  -\n";
+        let diag = parse_with_diagnostics(&RisParser::new(), source, "x.ris").unwrap_err();
+        assert!(diag.contains("RIS"), "format name should appear in the diagnostic");
     }
 }
