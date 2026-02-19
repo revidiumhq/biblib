@@ -157,7 +157,7 @@ pub mod ris;
 pub use csv::CsvParser;
 #[cfg(feature = "xml")]
 pub use endnote_xml::EndNoteXmlParser;
-pub use error::{CitationError, ParseError, ValueError};
+pub use error::{CitationError, ParseError, SourceSpan, ValueError};
 #[cfg(feature = "pubmed")]
 pub use pubmed::PubMedParser;
 #[cfg(feature = "ris")]

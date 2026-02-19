@@ -2,7 +2,7 @@
 //!
 //! This module provides the core parsing logic for EndNote XML format.
 
-use crate::error::{ParseError, ValueError};
+use crate::error::{ParseError, SourceSpan, ValueError};
 use crate::{Author, Citation, CitationFormat};
 use quick_xml::Reader;
 use quick_xml::events::Event;
@@ -23,7 +23,7 @@ fn extract_text_with_position<B: BufRead>(
     buf: &mut Vec<u8>,
     closing_tag: &[u8],
     content: &str,
-    _start_pos: usize,
+    start_pos: usize,
 ) -> Result<String, ParseError> {
     let mut text = String::new();
     let closing_tag_str = String::from_utf8_lossy(closing_tag);
@@ -44,6 +44,7 @@ fn extract_text_with_position<B: BufRead>(
             Ok(Event::End(e)) if e.name() == QName(closing_tag) => break,
             Ok(Event::Eof) => {
                 let line_num = buffer_position_to_line_number(content, current_pos);
+                let end_pos = reader.buffer_position() as usize;
                 return Err(ParseError::at_line(
                     line_num,
                     CitationFormat::EndNoteXml,
@@ -51,15 +52,18 @@ fn extract_text_with_position<B: BufRead>(
                         "Unexpected EOF while looking for closing tag '{}'",
                         closing_tag_str
                     )),
-                ));
+                )
+                .with_span(SourceSpan::new(start_pos, end_pos)));
             }
             Err(e) => {
                 let line_num = buffer_position_to_line_number(content, current_pos);
+                let end_pos = reader.buffer_position() as usize;
                 return Err(ParseError::at_line(
                     line_num,
                     CitationFormat::EndNoteXml,
                     ValueError::Syntax(format!("XML parsing error: {}", e)),
-                ));
+                )
+                .with_span(SourceSpan::new(start_pos, end_pos)));
             }
             _ => continue,
         }
@@ -381,6 +385,7 @@ fn parse_record<B: BufRead>(
 
     // Validate that we have at least a title or author
     if citation.title.is_empty() && citation.authors.is_empty() {
+        let end_pos = reader.buffer_position() as usize;
         let line_num = buffer_position_to_line_number(content, start_pos);
         return Err(ParseError::at_line(
             line_num,
@@ -389,7 +394,8 @@ fn parse_record<B: BufRead>(
                 field: "title or author",
                 key: "title/author",
             },
-        ));
+        )
+        .with_span(SourceSpan::new(start_pos, end_pos)));
     }
 
     Ok(citation)

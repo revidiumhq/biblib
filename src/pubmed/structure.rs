@@ -1,4 +1,4 @@
-use crate::error::{ParseError, ValueError, fields};
+use crate::error::{ParseError, SourceSpan, ValueError, fields};
 use crate::pubmed::author::PubmedAuthor;
 use crate::pubmed::tags::PubmedTag;
 use crate::utils::parse_pubmed_date;
@@ -15,6 +15,8 @@ pub(crate) struct RawPubmedData {
     pub(crate) ignored_lines: Vec<String>,
     /// Starting line number of this citation in the source text (1-based).
     pub(crate) start_line: usize,
+    /// Byte-offset span of the entire citation chunk in the source text.
+    pub(crate) record_span: SourceSpan,
 }
 
 impl TryFrom<RawPubmedData> for crate::Citation {
@@ -25,6 +27,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
             authors,
             ignored_lines: _,
             start_line,
+            record_span,
         }: RawPubmedData,
     ) -> Result<Self, Self::Error> {
         // unresolved question: what should we do if multiple values are found for
@@ -36,7 +39,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
             .remove(&PubmedTag::PublicationDate)
             // multiple values ignored
             .and_then(|v| v.into_iter().next())
-            .map(|v| parse_pubmed_date_err(v, start_line))
+            .map(|v| parse_pubmed_date_err(v, start_line, &record_span))
             .transpose()?;
 
         Ok(Self {
@@ -55,6 +58,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
                             key: "TI",
                         },
                     )
+                    .with_span(record_span.clone())
                 })?,
             authors: authors.into_iter().map(|a| a.into()).collect(),
             journal: data
@@ -113,7 +117,7 @@ fn join_if_some(v: Vec<String>) -> Option<String> {
 }
 
 /// Wraps [parse_pubmed_date] to change its types.
-fn parse_pubmed_date_err<S: AsRef<str>>(date: S, start_line: usize) -> Result<Date, ParseError> {
+fn parse_pubmed_date_err<S: AsRef<str>>(date: S, start_line: usize, record_span: &SourceSpan) -> Result<Date, ParseError> {
     let s = date.as_ref();
     parse_pubmed_date(s).ok_or_else(|| {
         ParseError::at_line(
@@ -126,6 +130,7 @@ fn parse_pubmed_date_err<S: AsRef<str>>(date: S, start_line: usize) -> Result<Da
                 reason: "not a valid date in YYYY MMM D format".to_string(),
             },
         )
+        .with_span(record_span.clone())
     })
 }
 

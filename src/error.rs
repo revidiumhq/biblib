@@ -7,6 +7,25 @@
 use crate::CitationFormat;
 use thiserror::Error;
 
+/// A byte-offset span into the original source text.
+///
+/// Both `start` and `end` are byte offsets (not character indices) from the
+/// beginning of the source string.  `start` is inclusive, `end` is exclusive.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceSpan {
+    /// Inclusive start byte offset.
+    pub start: usize,
+    /// Exclusive end byte offset.
+    pub end: usize,
+}
+
+impl SourceSpan {
+    /// Create a new `SourceSpan`.
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+}
+
 /// Field name constants for consistent error reporting.
 pub mod fields {
     pub const TITLE: &str = "title";
@@ -56,6 +75,8 @@ pub struct ParseError {
     pub line: Option<usize>,
     /// Column number where the error occurred (1-based, None if not available)
     pub column: Option<usize>,
+    /// Byte-offset span into the source text, for rich diagnostic rendering.
+    pub span: Option<SourceSpan>,
     /// The citation format being parsed
     pub format: CitationFormat,
     /// The specific error that occurred
@@ -73,9 +94,16 @@ impl ParseError {
         Self {
             line,
             column,
+            span: None,
             format,
             error,
         }
+    }
+
+    /// Attach a byte-offset span to this error, returning `self` (builder style).
+    pub fn with_span(mut self, span: SourceSpan) -> Self {
+        self.span = Some(span);
+        self
     }
 
     /// Create a ParseError with just line information.
