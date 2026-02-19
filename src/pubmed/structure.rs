@@ -13,6 +13,8 @@ pub(crate) struct RawPubmedData {
     pub(crate) authors: Vec<PubmedAuthor>,
     /// Invalid lines found in the .nbib file data, which were skipped by the parser.
     pub(crate) ignored_lines: Vec<String>,
+    /// Starting line number of this citation in the source text (1-based).
+    pub(crate) start_line: usize,
 }
 
 impl TryFrom<RawPubmedData> for crate::Citation {
@@ -22,6 +24,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
             mut data,
             authors,
             ignored_lines: _,
+            start_line,
         }: RawPubmedData,
     ) -> Result<Self, Self::Error> {
         // unresolved question: what should we do if multiple values are found for
@@ -33,7 +36,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
             .remove(&PubmedTag::PublicationDate)
             // multiple values ignored
             .and_then(|v| v.into_iter().next())
-            .map(parse_pubmed_date_err)
+            .map(|v| parse_pubmed_date_err(v, start_line))
             .transpose()?;
 
         Ok(Self {
@@ -44,7 +47,8 @@ impl TryFrom<RawPubmedData> for crate::Citation {
                 .remove(&PubmedTag::Title)
                 .and_then(join_if_some)
                 .ok_or_else(|| {
-                    ParseError::without_position(
+                    ParseError::at_line(
+                        start_line,
                         CitationFormat::PubMed,
                         ValueError::MissingValue {
                             field: fields::TITLE,
@@ -109,10 +113,11 @@ fn join_if_some(v: Vec<String>) -> Option<String> {
 }
 
 /// Wraps [parse_pubmed_date] to change its types.
-fn parse_pubmed_date_err<S: AsRef<str>>(date: S) -> Result<Date, ParseError> {
+fn parse_pubmed_date_err<S: AsRef<str>>(date: S, start_line: usize) -> Result<Date, ParseError> {
     let s = date.as_ref();
     parse_pubmed_date(s).ok_or_else(|| {
-        ParseError::without_position(
+        ParseError::at_line(
+            start_line,
             CitationFormat::PubMed,
             ValueError::BadValue {
                 field: fields::DATE,

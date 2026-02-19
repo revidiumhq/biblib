@@ -15,11 +15,11 @@ pub fn pubmed_parse<S: AsRef<str>>(nbib_text: S) -> Vec<RawPubmedData> {
     let text = nbib_text.as_ref();
     let line_break = newline_delimiter_of(text);
     BlankLineSplit::new(text, line_break)
-        .map(|(_line_number, chunk)| pubmed_parse_one(chunk, line_break))
+        .map(|(line_number, chunk)| pubmed_parse_one(chunk, line_break, line_number))
         .collect() // TODO do not collect, return an Iterator instead
 }
 
-fn pubmed_parse_one(text: &str, line_break: &str) -> RawPubmedData {
+fn pubmed_parse_one(text: &str, line_break: &str, start_line: usize) -> RawPubmedData {
     let (mut ignored_lines, pairs): (Vec<_>, Vec<_>) =
         WholeLinesIter::new(text.split(line_break)).partition_map(parse_complete_entry);
     let (data, others) = separate_stateless_entries(pairs);
@@ -33,6 +33,7 @@ fn pubmed_parse_one(text: &str, line_break: &str) -> RawPubmedData {
         data,
         authors,
         ignored_lines,
+        start_line,
     }
 }
 

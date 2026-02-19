@@ -134,7 +134,8 @@ impl RawCsvData {
         config: &CsvConfig,
     ) -> Result<crate::Citation, crate::error::CitationError> {
         let title = self.get_field("title").cloned().ok_or_else(|| {
-            ParseError::without_position(
+            ParseError::at_line(
+                self.line_number,
                 CitationFormat::Csv,
                 ValueError::MissingValue {
                     field: fields::TITLE,

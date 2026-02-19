@@ -23,6 +23,8 @@ pub(crate) struct RawRisData {
     pub(crate) authors: Vec<Author>,
     /// Invalid lines found in the RIS file data with line number context for error reporting.
     pub(crate) ignored_lines: Vec<(usize, String)>,
+    /// Line number of the TY tag that started this citation (1-based, None if unknown).
+    pub(crate) start_line: Option<usize>,
 }
 
 impl RawRisData {
@@ -32,6 +34,7 @@ impl RawRisData {
             data: HashMap::new(),
             authors: Vec::new(),
             ignored_lines: Vec::new(),
+            start_line: None,
         }
     }
 
@@ -145,6 +148,7 @@ impl TryFrom<RawRisData> for crate::Citation {
 impl crate::Citation {
     /// Extract title from RIS data, trying primary title first, then alternative.
     fn extract_title(raw: &mut RawRisData) -> Result<String, crate::error::ParseError> {
+        let start_line = raw.start_line;
         let title = raw
             .get_first(&RisTag::Title)
             .filter(|s| !s.trim().is_empty())
@@ -154,7 +158,9 @@ impl crate::Citation {
             })
             .cloned()
             .ok_or_else(|| {
-                crate::error::ParseError::without_position(
+                crate::error::ParseError::new(
+                    start_line,
+                    None,
                     crate::CitationFormat::Ris,
                     crate::error::ValueError::MissingValue {
                         field: crate::error::fields::TITLE,

@@ -45,6 +45,7 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
                             citations.push(current_citation);
                             current_citation = RawRisData::new();
                         }
+                        current_citation.start_line = Some(line_number);
                         current_citation.add_data(tag, content);
                     }
                     RisTag::EndOfReference => {
