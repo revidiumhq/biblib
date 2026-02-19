@@ -7,7 +7,7 @@ use crate::ris::tags::RisTag;
 use crate::utils::parse_author_name;
 use crate::{
     Author, CitationFormat,
-    error::{ParseError, ValueError},
+    error::{ParseError, SourceSpan, ValueError},
 };
 
 /// Parse the content of a RIS formatted file, returning structured data.
@@ -21,10 +21,13 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
     let mut citations = Vec::new();
     let mut current_citation = RawRisData::new();
     let mut line_number = 0;
+    let text_ptr = text.as_ptr() as usize;
 
-    for line in text.lines() {
+    for raw_line in text.lines() {
         line_number += 1;
-        let line = line.trim();
+        // Compute byte start of this line via pointer arithmetic.
+        let line_byte_start = raw_line.as_ptr() as usize - text_ptr;
+        let line = raw_line.trim();
 
         // Skip empty lines
         if line.is_empty() {
@@ -36,6 +39,8 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
             continue;
         }
 
+        let line_byte_end = line_byte_start + raw_line.len();
+
         match parse_ris_line(line, line_number) {
             Ok((tag, content)) => {
                 match tag {
@@ -45,9 +50,16 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
                             citations.push(current_citation);
                             current_citation = RawRisData::new();
                         }
+                        current_citation.start_line = Some(line_number);
+                        current_citation.record_span =
+                            Some(SourceSpan::new(line_byte_start, line_byte_end));
                         current_citation.add_data(tag, content);
                     }
                     RisTag::EndOfReference => {
+                        // Extend span to cover the ER line
+                        if let Some(ref mut span) = current_citation.record_span {
+                            span.end = line_byte_end;
+                        }
                         // End of current citation
                         if current_citation.has_content() {
                             citations.push(current_citation);
@@ -55,17 +67,26 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
                         }
                     }
                     tag if tag.is_author_tag() => {
+                        if let Some(ref mut span) = current_citation.record_span {
+                            span.end = line_byte_end;
+                        }
                         let authors = split_and_parse_authors(&content);
                         for author in authors {
                             current_citation.add_author(author);
                         }
                     }
                     _ => {
+                        if let Some(ref mut span) = current_citation.record_span {
+                            span.end = line_byte_end;
+                        }
                         current_citation.add_data(tag, content);
                     }
                 }
             }
             Err(_) => {
+                if let Some(ref mut span) = current_citation.record_span {
+                    span.end = line_byte_end;
+                }
                 // Add invalid lines to ignored lines with context
                 current_citation.add_ignored_line(line_number, line.to_string());
             }

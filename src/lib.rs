@@ -144,6 +144,8 @@ extern crate csv as csv_crate;
 pub mod csv;
 #[cfg(feature = "dedupe")]
 pub mod dedupe;
+#[cfg(feature = "diagnostics")]
+pub mod diagnostics;
 #[cfg(feature = "xml")]
 pub mod endnote_xml;
 pub mod error;
@@ -157,7 +159,9 @@ pub mod ris;
 pub use csv::CsvParser;
 #[cfg(feature = "xml")]
 pub use endnote_xml::EndNoteXmlParser;
-pub use error::{CitationError, ParseError, ValueError};
+pub use error::{CitationError, ParseError, SourceSpan, ValueError};
+#[cfg(feature = "diagnostics")]
+pub use diagnostics::parse_with_diagnostics;
 #[cfg(feature = "pubmed")]
 pub use pubmed::PubMedParser;
 #[cfg(feature = "ris")]

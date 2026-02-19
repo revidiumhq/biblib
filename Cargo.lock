@@ -12,9 +12,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "biblib"
-version = "0.3.2"
+name = "ariadne"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8454c8a44ce2cb9cc7e7fae67fc6128465b343b92c6631e94beca3c8d1524ea5"
 dependencies = [
+ "unicode-width",
+ "yansi",
+]
+
+[[package]]
+name = "biblib"
+version = "0.4.0"
+dependencies = [
+ "ariadne",
  "compact_str",
  "csv",
  "either",
@@ -364,6 +375,12 @@ name = "unicode-ident"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11cd88e12b17c6494200a9c1b683a04fcac9573ed74cd1b62aeb2727c5592243"
+
+[[package]]
+name = "unicode-width"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "yansi"

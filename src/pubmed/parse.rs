@@ -3,6 +3,7 @@ use crate::pubmed::split::BlankLineSplit;
 use crate::pubmed::structure::RawPubmedData;
 use crate::pubmed::tags::PubmedTag;
 use crate::pubmed::whole_lines::WholeLinesIter;
+use crate::error::SourceSpan;
 use crate::utils::newline_delimiter_of;
 use either::{Either, Left, Right};
 use itertools::Itertools;
@@ -13,13 +14,17 @@ use std::collections::HashMap;
 /// alongside any unparsable lines.
 pub fn pubmed_parse<S: AsRef<str>>(nbib_text: S) -> Vec<RawPubmedData> {
     let text = nbib_text.as_ref();
+    let text_ptr = text.as_ptr() as usize;
     let line_break = newline_delimiter_of(text);
     BlankLineSplit::new(text, line_break)
-        .map(|(_line_number, chunk)| pubmed_parse_one(chunk, line_break))
+        .map(|(line_number, chunk)| {
+            let chunk_start = chunk.as_ptr() as usize - text_ptr;
+            pubmed_parse_one(chunk, line_break, line_number, chunk_start)
+        })
         .collect() // TODO do not collect, return an Iterator instead
 }
 
-fn pubmed_parse_one(text: &str, line_break: &str) -> RawPubmedData {
+fn pubmed_parse_one(text: &str, line_break: &str, start_line: usize, start_byte: usize) -> RawPubmedData {
     let (mut ignored_lines, pairs): (Vec<_>, Vec<_>) =
         WholeLinesIter::new(text.split(line_break)).partition_map(parse_complete_entry);
     let (data, others) = separate_stateless_entries(pairs);
@@ -33,6 +38,8 @@ fn pubmed_parse_one(text: &str, line_break: &str) -> RawPubmedData {
         data,
         authors,
         ignored_lines,
+        start_line,
+        record_span: SourceSpan::new(start_byte, start_byte + text.len()),
     }
 }
 

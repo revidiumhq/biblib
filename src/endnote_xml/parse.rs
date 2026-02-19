@@ -2,7 +2,7 @@
 //!
 //! This module provides the core parsing logic for EndNote XML format.
 
-use crate::error::{ParseError, ValueError};
+use crate::error::{ParseError, SourceSpan, ValueError};
 use crate::{Author, Citation, CitationFormat};
 use quick_xml::Reader;
 use quick_xml::events::Event;
@@ -23,7 +23,7 @@ fn extract_text_with_position<B: BufRead>(
     buf: &mut Vec<u8>,
     closing_tag: &[u8],
     content: &str,
-    _start_pos: usize,
+    start_pos: usize,
 ) -> Result<String, ParseError> {
     let mut text = String::new();
     let closing_tag_str = String::from_utf8_lossy(closing_tag);
@@ -44,6 +44,7 @@ fn extract_text_with_position<B: BufRead>(
             Ok(Event::End(e)) if e.name() == QName(closing_tag) => break,
             Ok(Event::Eof) => {
                 let line_num = buffer_position_to_line_number(content, current_pos);
+                let end_pos = reader.buffer_position() as usize;
                 return Err(ParseError::at_line(
                     line_num,
                     CitationFormat::EndNoteXml,
@@ -51,15 +52,18 @@ fn extract_text_with_position<B: BufRead>(
                         "Unexpected EOF while looking for closing tag '{}'",
                         closing_tag_str
                     )),
-                ));
+                )
+                .with_span(SourceSpan::new(start_pos, end_pos)));
             }
             Err(e) => {
                 let line_num = buffer_position_to_line_number(content, current_pos);
+                let end_pos = reader.buffer_position() as usize;
                 return Err(ParseError::at_line(
                     line_num,
                     CitationFormat::EndNoteXml,
                     ValueError::Syntax(format!("XML parsing error: {}", e)),
-                ));
+                )
+                .with_span(SourceSpan::new(start_pos, end_pos)));
             }
             _ => continue,
         }
@@ -101,7 +105,15 @@ pub(crate) fn parse_endnote_xml(content: &str) -> Result<Vec<Citation>, ParseErr
                 citations.push(parse_record(&mut reader, &mut buf, content, pos)?);
             }
             Ok(Event::Eof) => break,
-            Err(e) => return Err(ParseError::from(e)),
+            Err(e) => {
+                let pos = reader.buffer_position() as usize;
+                let line = buffer_position_to_line_number(content, pos);
+                return Err(ParseError::at_line(
+                    line,
+                    CitationFormat::EndNoteXml,
+                    ValueError::Syntax(format!("XML parsing error: {}", e)),
+                ));
+            }
             _ => (),
         }
         buf.clear();
@@ -109,44 +121,6 @@ pub(crate) fn parse_endnote_xml(content: &str) -> Result<Vec<Citation>, ParseErr
 
     // Return empty vector instead of error for empty but valid XML
     Ok(citations)
-}
-
-/// Extracts text content from XML events until the closing tag is found
-fn extract_text<B: BufRead>(
-    reader: &mut Reader<B>,
-    buf: &mut Vec<u8>,
-    closing_tag: &[u8],
-) -> Result<String, ParseError> {
-    let mut text = String::new();
-    let closing_tag_str = String::from_utf8_lossy(closing_tag);
-
-    loop {
-        match reader.read_event_into(buf) {
-            Ok(Event::Text(e)) => {
-                text.push_str(&e.unescape().map_err(|e| {
-                    ParseError::without_position(
-                        CitationFormat::EndNoteXml,
-                        ValueError::Syntax(format!("Invalid XML text content: {}", e)),
-                    )
-                })?);
-            }
-            Ok(Event::End(e)) if e.name() == QName(closing_tag) => break,
-            Ok(Event::Eof) => {
-                return Err(ParseError::without_position(
-                    CitationFormat::EndNoteXml,
-                    ValueError::Syntax(format!(
-                        "Unexpected EOF while looking for closing tag '{}'",
-                        closing_tag_str
-                    )),
-                ));
-            }
-            Err(e) => return Err(ParseError::from(e)),
-            _ => continue,
-        }
-        buf.clear();
-    }
-
-    Ok(text.trim().to_string())
 }
 
 /// Extracts date components (year, month, day) from a year element
@@ -160,9 +134,12 @@ fn extract_date_from_year_element<B: BufRead>(
     let mut day_val = None;
 
     // First, extract attributes if present
+    let attr_pos = reader.buffer_position() as usize;
+    let attr_line = buffer_position_to_line_number(content, attr_pos);
     for attr in e.attributes() {
         let attr = attr.map_err(|e| {
-            ParseError::without_position(
+            ParseError::at_line(
+                attr_line,
                 CitationFormat::EndNoteXml,
                 ValueError::Syntax(format!("Invalid attribute: {}", e)),
             )
@@ -226,9 +203,12 @@ fn parse_record<B: BufRead>(
         match reader.read_event_into(buf) {
             Ok(Event::Start(ref e)) => match e.name().as_ref() {
                 b"ref-type" => {
+                    let attr_pos = reader.buffer_position() as usize;
+                    let attr_line = buffer_position_to_line_number(content, attr_pos);
                     for attr in e.attributes() {
                         let attr = attr.map_err(|e| {
-                            ParseError::without_position(
+                            ParseError::at_line(
+                                attr_line,
                                 CitationFormat::EndNoteXml,
                                 ValueError::Syntax(format!("Invalid attribute: {}", e)),
                             )
@@ -237,7 +217,8 @@ fn parse_record<B: BufRead>(
                             citation.citation_type.push(
                                 attr.unescape_value()
                                     .map_err(|e| {
-                                        ParseError::without_position(
+                                        ParseError::at_line(
+                                            attr_line,
                                             CitationFormat::EndNoteXml,
                                             ValueError::Syntax(format!(
                                                 "Invalid attribute value: {}",
@@ -251,10 +232,12 @@ fn parse_record<B: BufRead>(
                     }
                 }
                 b"title" => {
-                    citation.title = extract_text(reader, buf, b"title")?;
+                    let pos = reader.buffer_position() as usize;
+                    citation.title = extract_text_with_position(reader, buf, b"title", content, pos)?;
                 }
                 b"author" => {
-                    let author_str = extract_text(reader, buf, b"author")?;
+                    let pos = reader.buffer_position() as usize;
+                    let author_str = extract_text_with_position(reader, buf, b"author", content, pos)?;
                     let (family, given) = crate::utils::parse_author_name(&author_str);
                     let (given_opt, middle_opt) = if given.is_empty() {
                         (None, None)
@@ -269,7 +252,8 @@ fn parse_record<B: BufRead>(
                     });
                 }
                 b"secondary-title" => {
-                    let sec_title = extract_text(reader, buf, b"secondary-title")?;
+                    let pos = reader.buffer_position() as usize;
+                    let sec_title = extract_text_with_position(reader, buf, b"secondary-title", content, pos)?;
                     // If no primary title, use secondary-title as title
                     if citation.title.is_empty() {
                         citation.title = sec_title;
@@ -278,7 +262,8 @@ fn parse_record<B: BufRead>(
                     }
                 }
                 b"alt-title" => {
-                    let alt_title = extract_text(reader, buf, b"alt-title")?;
+                    let pos = reader.buffer_position() as usize;
+                    let alt_title = extract_text_with_position(reader, buf, b"alt-title", content, pos)?;
                     // If no primary title or journal is set, use alt-title as title
                     if citation.title.is_empty() && citation.journal.is_none() {
                         citation.title = alt_title;
@@ -289,28 +274,34 @@ fn parse_record<B: BufRead>(
                     }
                 }
                 b"custom2" => {
-                    let text = extract_text(reader, buf, b"custom2")?;
+                    let pos = reader.buffer_position() as usize;
+                    let text = extract_text_with_position(reader, buf, b"custom2", content, pos)?;
                     // Check for PMC ID patterns
                     if text.to_lowercase().contains("pmc") || text.starts_with("PMC") {
                         citation.pmc_id = Some(text);
                     }
                 }
                 b"volume" => {
-                    citation.volume = Some(extract_text(reader, buf, b"volume")?);
+                    let pos = reader.buffer_position() as usize;
+                    citation.volume = Some(extract_text_with_position(reader, buf, b"volume", content, pos)?);
                 }
                 b"number" => {
-                    citation.issue = Some(extract_text(reader, buf, b"number")?);
+                    let pos = reader.buffer_position() as usize;
+                    citation.issue = Some(extract_text_with_position(reader, buf, b"number", content, pos)?);
                 }
                 b"pages" => {
-                    let pages = extract_text(reader, buf, b"pages")?;
+                    let pos = reader.buffer_position() as usize;
+                    let pages = extract_text_with_position(reader, buf, b"pages", content, pos)?;
                     citation.pages = Some(crate::utils::format_page_numbers(&pages));
                 }
                 b"electronic-resource-num" => {
-                    let doi = extract_text(reader, buf, b"electronic-resource-num")?;
+                    let pos = reader.buffer_position() as usize;
+                    let doi = extract_text_with_position(reader, buf, b"electronic-resource-num", content, pos)?;
                     citation.doi = crate::utils::format_doi(&doi);
                 }
                 b"url" => {
-                    let url = extract_text(reader, buf, b"url")?;
+                    let pos = reader.buffer_position() as usize;
+                    let url = extract_text_with_position(reader, buf, b"url", content, pos)?;
                     if citation.doi.is_none() && url.contains("doi.org") {
                         citation.doi = crate::utils::format_doi(&url);
                     }
@@ -337,35 +328,56 @@ fn parse_record<B: BufRead>(
                                 break;
                             }
                             Ok(Event::Eof) => break,
-                            Err(e) => return Err(ParseError::from(e)),
+                            Err(e) => {
+                                let pos = reader.buffer_position() as usize;
+                                let line = buffer_position_to_line_number(content, pos);
+                                return Err(ParseError::at_line(
+                                    line,
+                                    CitationFormat::EndNoteXml,
+                                    ValueError::Syntax(format!("XML parsing error: {}", e)),
+                                ));
+                            }
                             _ => continue,
                         }
                         buf.clear();
                     }
                 }
                 b"abstract" => {
-                    citation.abstract_text = Some(extract_text(reader, buf, b"abstract")?);
+                    let pos = reader.buffer_position() as usize;
+                    citation.abstract_text = Some(extract_text_with_position(reader, buf, b"abstract", content, pos)?);
                 }
                 b"keyword" => {
+                    let pos = reader.buffer_position() as usize;
                     citation
                         .keywords
-                        .push(extract_text(reader, buf, b"keyword")?);
+                        .push(extract_text_with_position(reader, buf, b"keyword", content, pos)?);
                 }
                 b"language" => {
-                    citation.language = Some(extract_text(reader, buf, b"language")?);
+                    let pos = reader.buffer_position() as usize;
+                    citation.language = Some(extract_text_with_position(reader, buf, b"language", content, pos)?);
                 }
                 b"publisher" => {
-                    citation.publisher = Some(extract_text(reader, buf, b"publisher")?);
+                    let pos = reader.buffer_position() as usize;
+                    citation.publisher = Some(extract_text_with_position(reader, buf, b"publisher", content, pos)?);
                 }
                 b"isbn" => {
-                    let issns = extract_text(reader, buf, b"isbn")?;
+                    let pos = reader.buffer_position() as usize;
+                    let issns = extract_text_with_position(reader, buf, b"isbn", content, pos)?;
                     citation.issn.extend(crate::utils::split_issns(&issns));
                 }
                 _ => (),
             },
             Ok(Event::End(ref e)) if e.name() == QName(b"record") => break,
             Ok(Event::Eof) => break,
-            Err(e) => return Err(ParseError::from(e)),
+            Err(e) => {
+                let pos = reader.buffer_position() as usize;
+                let line = buffer_position_to_line_number(content, pos);
+                return Err(ParseError::at_line(
+                    line,
+                    CitationFormat::EndNoteXml,
+                    ValueError::Syntax(format!("XML parsing error: {}", e)),
+                ));
+            }
             _ => (),
         }
         buf.clear();
@@ -373,6 +385,7 @@ fn parse_record<B: BufRead>(
 
     // Validate that we have at least a title or author
     if citation.title.is_empty() && citation.authors.is_empty() {
+        let end_pos = reader.buffer_position() as usize;
         let line_num = buffer_position_to_line_number(content, start_pos);
         return Err(ParseError::at_line(
             line_num,
@@ -381,7 +394,8 @@ fn parse_record<B: BufRead>(
                 field: "title or author",
                 key: "title/author",
             },
-        ));
+        )
+        .with_span(SourceSpan::new(start_pos, end_pos)));
     }
 
     Ok(citation)

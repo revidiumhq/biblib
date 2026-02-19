@@ -11,6 +11,7 @@
 //! - **Validation**: Date parsing includes error logging for invalid formats
 
 use crate::Author;
+use crate::error::SourceSpan;
 use crate::ris::tags::RisTag;
 use std::collections::HashMap;
 
@@ -23,6 +24,10 @@ pub(crate) struct RawRisData {
     pub(crate) authors: Vec<Author>,
     /// Invalid lines found in the RIS file data with line number context for error reporting.
     pub(crate) ignored_lines: Vec<(usize, String)>,
+    /// Line number of the TY tag that started this citation (1-based, None if unknown).
+    pub(crate) start_line: Option<usize>,
+    /// Byte-offset span of the citation record in the source text (TY … ER).
+    pub(crate) record_span: Option<SourceSpan>,
 }
 
 impl RawRisData {
@@ -32,6 +37,8 @@ impl RawRisData {
             data: HashMap::new(),
             authors: Vec::new(),
             ignored_lines: Vec::new(),
+            start_line: None,
+            record_span: None,
         }
     }
 
@@ -145,6 +152,8 @@ impl TryFrom<RawRisData> for crate::Citation {
 impl crate::Citation {
     /// Extract title from RIS data, trying primary title first, then alternative.
     fn extract_title(raw: &mut RawRisData) -> Result<String, crate::error::ParseError> {
+        let start_line = raw.start_line;
+        let record_span = raw.record_span.clone();
         let title = raw
             .get_first(&RisTag::Title)
             .filter(|s| !s.trim().is_empty())
@@ -154,13 +163,20 @@ impl crate::Citation {
             })
             .cloned()
             .ok_or_else(|| {
-                crate::error::ParseError::without_position(
+                let err = crate::error::ParseError::new(
+                    start_line,
+                    None,
                     crate::CitationFormat::Ris,
                     crate::error::ValueError::MissingValue {
                         field: crate::error::fields::TITLE,
                         key: "TI",
                     },
-                )
+                );
+                if let Some(span) = record_span {
+                    err.with_span(span)
+                } else {
+                    err
+                }
             })?;
 
         // Remove title data after extraction

@@ -323,4 +323,74 @@ AID- 10.1016/j.example.2023.01.001 [doi]
         let result = parser.parse(input).unwrap();
         assert_eq!(result[0].doi.as_deref(), Some("10.1016/j.example.2023.01.001"));
     }
+
+    // ── Phase 4: line-number accuracy tests ─────────────────────────────────
+
+    /// A missing TI in a single-citation file must report line 1 (where PMID
+    /// — the first tag — appears).
+    #[test]
+    fn test_missing_title_reports_line() {
+        let input = "PMID- 12345678\nAU  - Smith, John\n\n";
+        let err = PubMedParser::new().parse(input).unwrap_err();
+        assert_eq!(err.line, Some(1), "error should point to line 1 (citation start)");
+    }
+
+    /// Second citation starts on line 4 (after blank-line separator).
+    /// A missing TI there must report that line.
+    #[test]
+    fn test_missing_title_reports_second_citation_line() {
+        // Citation 1: lines 1-2, blank on 3, Citation 2: starts on line 4.
+        let input = "PMID- 1\nTI  - First\n\nPMID- 2\nAU  - Doe, J\n\n";
+        let err = PubMedParser::new().parse(input).unwrap_err();
+        assert_eq!(err.line, Some(4), "second citation starts on line 4");
+    }
+
+    /// The byte-offset span must cover the whole citation chunk, so its start
+    /// byte for the first citation is 0.
+    #[test]
+    fn test_missing_title_error_has_span() {
+        let input = "PMID- 12345678\nAU  - Smith, John\n\n";
+        let err = PubMedParser::new().parse(input).unwrap_err();
+        let span = err.span.expect("expected a byte-offset span");
+        assert_eq!(span.start, 0, "first citation span should start at byte 0");
+        assert!(span.end > span.start);
+    }
+
+    /// The span start for the second citation must be after the first citation's
+    /// bytes (i.e. > 0).
+    #[test]
+    fn test_missing_title_second_citation_span_nonzero() {
+        let first = "PMID- 1\nTI  - First\n\n";
+        let second = "PMID- 2\nAU  - Doe, J\n\n";
+        let input = format!("{}{}", first, second);
+        let err = PubMedParser::new().parse(&input).unwrap_err();
+        let span = err.span.expect("expected a byte-offset span");
+        assert!(
+            span.start >= first.len(),
+            "second citation span ({}) should start at or after byte {} (end of first)",
+            span.start, first.len()
+        );
+    }
+
+    /// A bad date value must also carry the right line number.
+    #[test]
+    fn test_bad_date_reports_line() {
+        let input = "PMID- 1\nTI  - Title\nDP  - not-a-date\n\n";
+        let err = PubMedParser::new().parse(input).unwrap_err();
+        assert_eq!(err.line, Some(1), "error should point back to the citation start line");
+        assert!(matches!(err.error, crate::error::ValueError::BadValue { .. }));
+    }
+
+    /// Multiple-citation file: only the third citation is broken; the first two
+    /// must parse OK and the error's line must point into the third chunk.
+    #[test]
+    fn test_line_number_in_third_citation() {
+        let input = concat!(
+            "PMID- 1\nTI  - One\n\n",    // chunk 1: lines 1-2
+            "PMID- 2\nTI  - Two\n\n",    // chunk 2: lines 4-5
+            "PMID- 3\nAU  - Doe, J\n\n", // chunk 3: starts line 7 (missing TI)
+        );
+        let err = PubMedParser::new().parse(input).unwrap_err();
+        assert_eq!(err.line, Some(7), "third citation starts on line 7");
+    }
 }
