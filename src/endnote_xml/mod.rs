@@ -180,9 +180,9 @@ mod integration_tests {
             Some("Journal of Computational Science".to_string())
         );
         assert_eq!(citation1.authors.len(), 3);
-  assert_eq!(citation1.authors[0].name, "Smith");
-  assert_eq!(citation1.authors[0].given_name.as_deref(), Some("John"));
-  assert_eq!(citation1.authors[0].middle_name.as_deref(), Some("A."));
+        assert_eq!(citation1.authors[0].name, "Smith");
+        assert_eq!(citation1.authors[0].given_name.as_deref(), Some("John"));
+        assert_eq!(citation1.authors[0].middle_name.as_deref(), Some("A."));
         assert_eq!(citation1.volume, Some("25".to_string()));
         assert_eq!(citation1.issue, Some("4".to_string()));
         assert_eq!(citation1.pages, Some("123-145".to_string()));
@@ -216,8 +216,8 @@ mod integration_tests {
         );
         assert_eq!(citation2.journal, Some("Nature Medicine".to_string()));
         assert_eq!(citation2.authors.len(), 1);
-  assert_eq!(citation2.authors[0].name, "Wilson");
-  assert_eq!(citation2.authors[0].given_name.as_deref(), Some("Emily"));
+        assert_eq!(citation2.authors[0].name, "Wilson");
+        assert_eq!(citation2.authors[0].given_name.as_deref(), Some("Emily"));
         assert_eq!(citation2.volume, Some("29".to_string()));
         assert_eq!(citation2.issue, Some("2".to_string()));
         assert_eq!(citation2.pages, Some("78-92".to_string()));
@@ -264,8 +264,11 @@ mod integration_tests {
         let citations = parse_endnote_xml(xml).unwrap();
         assert_eq!(citations.len(), 1);
         assert_eq!(citations[0].authors.len(), 1);
-  assert_eq!(citations[0].authors[0].name, "Anonymous");
-  assert_eq!(citations[0].authors[0].given_name.as_deref(), Some("Author"));
+        assert_eq!(citations[0].authors[0].name, "Anonymous");
+        assert_eq!(
+            citations[0].authors[0].given_name.as_deref(),
+            Some("Author")
+        );
         assert_eq!(citations[0].title, ""); // Empty title since none provided
     }
 
@@ -304,8 +307,8 @@ mod integration_tests {
         assert_eq!(citation.title, "Complex Nested Structure");
         assert_eq!(citation.journal, Some("Test Journal".to_string()));
         assert_eq!(citation.authors.len(), 2);
-  assert_eq!(citation.authors[0].name, "First");
-  assert_eq!(citation.authors[0].given_name.as_deref(), Some("Author"));
+        assert_eq!(citation.authors[0].name, "First");
+        assert_eq!(citation.authors[0].given_name.as_deref(), Some("Author"));
         assert_eq!(citation.date.as_ref().unwrap().year, 2023);
         assert_eq!(citation.keywords, vec!["keyword1", "keyword2"]);
     }

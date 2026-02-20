@@ -1,6 +1,6 @@
 [package]
 name = "biblib"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 description = "Parse, manage, and deduplicate academic citations"
 authors = ["Ali Azlan <aliazlanofficial@gmail.com>"]

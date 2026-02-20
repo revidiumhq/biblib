@@ -99,7 +99,8 @@ pub fn csv_parse<S: AsRef<str>>(
 
         let byte_offset = record.position().map(|p| p.byte() as usize).unwrap_or(0);
 
-        let raw_citation = RawCsvData::from_record(&headers, &record, config, line_number, byte_offset)?;
+        let raw_citation =
+            RawCsvData::from_record(&headers, &record, config, line_number, byte_offset)?;
 
         if raw_citation.has_content() {
             raw_citations.push(raw_citation);
@@ -325,7 +326,7 @@ mod tests {
             result[0].get_field("title"),
             Some(&"Test Article with, comma".to_string())
         );
-    assert_eq!(result[0].authors[0].name, "Smith");
+        assert_eq!(result[0].authors[0].name, "Smith");
     }
 
     #[test]

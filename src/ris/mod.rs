@@ -102,10 +102,10 @@ ER  -
         let result = parser.parse(input).unwrap();
         assert_eq!(result.len(), 1);
         let citation = &result[0];
-        assert_eq!(citation.citation_type[0], "JOUR");
+        assert_eq!(citation.citation_type[0], "Journal Article");
         assert_eq!(citation.title, "Test Article Title");
         assert_eq!(citation.authors.len(), 1);
-    assert_eq!(citation.authors[0].name, "Smith");
+        assert_eq!(citation.authors[0].name, "Smith");
         let date = citation.date.as_ref().unwrap();
         assert_eq!(date.year, 2023);
         assert_eq!(date.month, Some(12));
@@ -198,13 +198,13 @@ ER  -"#;
     #[test]
     fn test_missing_title_reports_second_citation_line() {
         let input = concat!(
-            "TY  - JOUR\n",  // line 1
-            "TI  - First\n", // line 2
-            "ER  -\n",       // line 3
-            "\n",            // line 4
-            "TY  - JOUR\n",  // line 5
-            "AU  - Doe, J\n",// line 6
-            "ER  -\n",       // line 7
+            "TY  - JOUR\n",   // line 1
+            "TI  - First\n",  // line 2
+            "ER  -\n",        // line 3
+            "\n",             // line 4
+            "TY  - JOUR\n",   // line 5
+            "AU  - Doe, J\n", // line 6
+            "ER  -\n",        // line 7
         );
         let err = RisParser::new().parse(input).unwrap_err();
         assert_eq!(err.line, Some(5), "expected line 5 (second TY tag)");
@@ -217,7 +217,10 @@ ER  -"#;
         let input = "TY  - JOUR\nAU  - Smith, John\nER  -\n";
         let err = RisParser::new().parse(input).unwrap_err();
         let span = err.span.expect("expected a byte-offset span");
-        assert_eq!(span.start, 0, "span should start at byte 0 (TY on first line)");
+        assert_eq!(
+            span.start, 0,
+            "span should start at byte 0 (TY on first line)"
+        );
         assert!(span.end > span.start, "span end must be after start");
     }
 
@@ -248,6 +251,9 @@ ER  -"#;
         let input = "TY  - JOUR\nTI  - Title\n!!  - bad\nER  -\n";
         let raw = ris_parse(input).unwrap();
         assert_eq!(raw[0].ignored_lines.len(), 1);
-        assert_eq!(raw[0].ignored_lines[0].0, 3, "bad line should be tagged as line 3");
+        assert_eq!(
+            raw[0].ignored_lines[0].0, 3,
+            "bad line should be tagged as line 3"
+        );
     }
 }

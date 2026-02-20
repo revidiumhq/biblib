@@ -223,7 +223,7 @@ Another Paper,\"Doe, Jane\",2022,Another Journal";
         let citations = parser.parse(input).unwrap();
         assert_eq!(citations.len(), 2);
         assert_eq!(citations[0].title, "Test Paper");
-    assert_eq!(citations[0].authors[0].name, "Smith");
+        assert_eq!(citations[0].authors[0].name, "Smith");
         assert_eq!(citations[0].date.as_ref().unwrap().year, 2023);
         assert_eq!(citations[0].journal, Some("Test Journal".to_string()));
     }
@@ -244,7 +244,7 @@ Test Paper,Smith J,2023,Test Journal";
         let parser = CsvParser::with_config(config);
         let citations = parser.parse(input).unwrap();
         assert_eq!(citations[0].title, "Test Paper");
-    assert_eq!(citations[0].authors[0].name, "Smith");
+        assert_eq!(citations[0].authors[0].name, "Smith");
         assert_eq!(citations[0].date.as_ref().unwrap().year, 2023);
         assert_eq!(citations[0].journal, Some("Test Journal".to_string()));
     }
@@ -259,8 +259,8 @@ Test Paper,\"Smith, John; Doe, Jane\",2023";
         let citations = parser.parse(input).unwrap();
 
         assert_eq!(citations[0].authors.len(), 2);
-    assert_eq!(citations[0].authors[0].name, "Smith");
-    assert_eq!(citations[0].authors[1].name, "Doe");
+        assert_eq!(citations[0].authors[0].name, "Smith");
+        assert_eq!(citations[0].authors[1].name, "Doe");
     }
 
     #[test]
@@ -273,7 +273,7 @@ Test Paper,\"Smith, John; Doe, Jane\",2023";
         let parser = CsvParser::with_config(config);
         let citations = parser.parse(input).unwrap();
         assert_eq!(citations[0].title, "Test Paper");
-    assert_eq!(citations[0].authors[0].name, "Smith");
+        assert_eq!(citations[0].authors[0].name, "Smith");
         assert_eq!(citations[0].date.as_ref().unwrap().year, 2023);
     }
 
@@ -311,7 +311,7 @@ Another Paper;Doe J;2024";
 
         assert_eq!(citations.len(), 2);
         assert_eq!(citations[0].title, "Test Paper");
-    assert_eq!(citations[0].authors[0].name, "Smith");
+        assert_eq!(citations[0].authors[0].name, "Smith");
     }
 
     #[test]
@@ -475,7 +475,8 @@ Another Paper,Doe J,2024";
         assert!(
             span.start >= header.len().saturating_sub(1),
             "span.start ({}) should be at or near the start of the data row (header is {} bytes)",
-            span.start, header.len()
+            span.start,
+            header.len()
         );
     }
 

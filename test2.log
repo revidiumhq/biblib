@@ -1,0 +1,312 @@
+﻿cargo : warning: field 
+`original_record` is never read
+At line:1 char:1
++ cargo test --color never 2>&1 | 
+Out-File -Encoding utf8 test2.log
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpeci 
+   fied: (warning: field ...` is neve  
+  r read:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCo 
+   mmandError
+ 
+  --> src\csv\structure.rs:29:16
+   |
+13 | ... struct RawCsvData {
+   |            ---------- field in 
+this struct
+...
+29 | ...ate) original_record: Option...
+   |         ^^^^^^^^^^^^^^^
+   |
+   = note: `RawCsvData` has derived 
+impls for the traits `Clone` and 
+`Debug`, but these are intentionally 
+ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part 
+of `#[warn(unused)]`) on by default
+
+warning: method `as_au` is never used
+  --> src\pubmed\author.rs:63:12
+   |
+17 | impl AuthorName {
+   | --------------- method in this 
+implementation
+...
+63 |     pub fn as_au(&self) -> Cow<...
+   |            ^^^^^
+
+warning: field `ignored_lines` is 
+never read
+  --> src\pubmed\structure.rs:15:16
+   |
+ 9 | ... struct RawPubmedData {
+   |            ------------- field in 
+this struct
+...
+15 | ...ate) ignored_lines: Vec<Stri...
+   |         ^^^^^^^^^^^^^
+
+warning: `biblib` (lib) generated 3 
+warnings
+warning: `biblib` (lib test) generated 
+2 warnings (2 duplicates)
+    Finished `test` profile 
+[unoptimized + debuginfo] target(s) in 
+0.18s
+     Running unittests src\lib.rs (targ
+et\debug\deps\biblib-5df0c9fd620b7ca4.e
+xe)
+
+running 228 tests
+test csv::config::tests::test_config_new ... ok
+test csv::config::tests::test_get_field_for_header_case_insensitive ... ok
+test csv::config::tests::test_configuration_chaining ... ok
+test csv::config::tests::test_set_header_mapping ... ok
+test csv::config::tests::test_validate_empty_field_name ... ok
+test csv::config::tests::test_add_header_aliases ... ok
+test csv::config::tests::test_validate_empty_alias ... ok
+test csv::config::tests::test_validate_invalid_delimiter ... ok
+test csv::config::tests::test_validate_duplicate_aliases ... ok
+test csv::config::tests::test_validate_success ... ok
+test csv::config::tests::test_validate_empty_mappings ... ok
+test csv::parse::tests::test_csv_parse_empty_input ... ok
+test csv::parse::tests::test_csv_parse_flexible_mode ... ok
+test csv::parse::tests::test_csv_parse_custom_delimiter ... ok
+test csv::parse::tests::test_csv_parse_basic ... ok
+test csv::parse::tests::test_detect_csv_delimiter::case_2 ... ok
+test csv::parse::tests::test_csv_parse_no_headers ... ok
+test csv::parse::tests::test_csv_parse_no_valid_citations ... ok
+test csv::parse::tests::test_detect_csv_delimiter::case_3 ... ok
+test csv::parse::tests::test_detect_csv_delimiter::case_1 ... ok
+test csv::parse::tests::test_detect_csv_headers::case_1 ... ok
+test csv::parse::tests::test_detect_csv_delimiter::case_4 ... ok
+test csv::parse::tests::test_detect_csv_headers::case_2 ... ok
+test csv::parse::tests::test_detect_csv_delimiter::case_5 ... ok
+test csv::parse::tests::test_csv_parse_malformed_strict ... ok
+test csv::parse::tests::test_csv_parse_with_quotes ... ok
+test csv::parse::tests::test_detect_csv_headers::case_5 ... ok
+test csv::structure::tests::test_conversion_to_citation ... ok
+test csv::structure::tests::test_from_record_too_many_fields_flexible ... ok
+test csv::structure::tests::test_from_record_multiple_authors ... ok
+test csv::parse::tests::test_detect_csv_headers::case_4 ... ok
+test csv::structure::tests::test_from_record_basic ... ok
+test csv::structure::tests::test_from_record_keywords ... ok
+test csv::structure::tests::test_from_record_too_many_fields_strict ... ok
+test csv::parse::tests::test_csv_parse_line_numbers_in_errors ... ok
+test csv::parse::tests::test_detect_csv_headers::case_3 ... ok
+test csv::structure::tests::test_missing_title_error ... ok
+test csv::tests::test_auto_detection ... ok
+test csv::tests::test_custom_delimiter ... ok
+test csv::tests::test_empty_input ... ok
+test csv::tests::test_basic_csv ... ok
+test csv::tests::test_custom_headers ... ok
+test csv::tests::test_line_numbers_increase_correctly ... ok
+test csv::tests::test_extra_fields_handling ... ok
+test csv::tests::test_error_with_line_numbers ... ok
+test csv::tests::test_comprehensive_header_detection ... ok
+test csv::tests::test_missing_title_error_has_span ... ok
+test csv::tests::test_keywords_parsing ... ok
+test csv::tests::test_missing_title_on_first_data_row_reports_line ... ok
+test csv::tests::test_no_valid_citations ... ok
+test csv::tests::test_improved_validation_errors ... ok
+test dedupe::tests::test_format_issn ... ok
+test dedupe::tests::test_find_duplicates ... ok
+test csv::tests::test_parser_configuration_methods ... ok
+test dedupe::tests::test_match_issns_scenarios ... ok
+test dedupe::tests::test_missing_doi ... ok
+test csv::tests::test_memory_optimization ... ok
+test dedupe::tests::test_abstract_preference ... ok
+test csv::tests::test_multiple_authors ... ok
+test dedupe::tests::test_group_by_year ... ok
+test dedupe::tests::test_format_journal_name ... ok
+test dedupe::tests::test_convert_unicode_string ... ok
+test csv::tests::test_missing_title_on_second_row_reports_line ... ok
+test dedupe::tests::test_normalize_volume ... ok
+test endnote_xml::integration_tests::test_author_only_citation ... ok
+test dedupe::tests::test_without_year_grouping ... ok
+test dedupe::tests::test_normalize_string ... ok
+test dedupe::tests::test_source_preferences_with_year_grouping ... ok
+test endnote_xml::integration_tests::test_complex_nesting ... ok
+test endnote_xml::integration_tests::test_empty_input ... ok
+test endnote_xml::integration_tests::test_detailed_line_tracking ... ok
+test dedupe::tests::test_source_preferences ... ok
+test endnote_xml::integration_tests::test_minimal_endnote_xml ... ok
+test endnote_xml::integration_tests::test_malformed_xml_error ... ok
+test endnote_xml::integration_tests::test_no_citations_found ... ok
+test endnote_xml::integration_tests::test_line_number_tracking_in_errors ... ok
+test endnote_xml::integration_tests::test_title_fallback_scenarios ... ok
+test endnote_xml::integration_tests::test_empty_xml ... ok
+test error::tests::test_csv_error_conversion ... ok
+test error::tests::test_parse_error_display ... ok
+test error::tests::test_value_error_display ... ok
+test pubmed::author::tests::test_author_name::case_1 ... ok
+test pubmed::author::tests::test_author_name::case_4 ... ok
+test pubmed::author::tests::test_author_name::case_5 ... ok
+test endnote_xml::integration_tests::test_complete_endnote_xml ... ok
+test endnote_xml::integration_tests::test_whitespace_only_input ... ok
+test error::tests::test_citation_format_display ... ok
+test error::tests::test_parse_error_with_position ... ok
+test pubmed::author::tests::test_author_name::case_2 ... ok
+test pubmed::author::tests::test_author_name::case_3 ... ok
+test pubmed::author::tests::test_author_name::case_6 ... ok
+test error::tests::test_parse_error_without_position ... ok
+test pubmed::author::tests::test_author_name::case_9 ... ok
+test pubmed::author::tests::test_resolve_author_deduplication::case_1 ... ok
+test pubmed::author::tests::test_resolve_author_deduplication::case_2 ... ok
+test pubmed::author::tests::test_author_name::case_8 ... ok
+test pubmed::parse::tests::test_parse_complete_entry::case_1 ... ok
+test pubmed::author::tests::test_resolve_author_typical ... ok
+test pubmed::parse::tests::test_parse_complete_entry::case_4 ... ok
+test pubmed::parse::tests::test_parse_complete_entry::case_5 ... ok
+test pubmed::author::tests::test_author_name::case_7 ... ok
+test pubmed::author::tests::test_resolve_author_consecutive_au::case_1 ... ok
+test pubmed::author::tests::test_resolve_author_consecutive_au::case_2 ... ok
+test pubmed::author::tests::test_resolve_author_deduplication::case_3 ... ok
+test pubmed::author::tests::test_resolve_author_leading_affiliations ... ok
+test pubmed::parse::tests::test_parse_complete_entry::case_2 ... ok
+test pubmed::parse::tests::test_parse_complete_entry::case_3 ... ok
+test pubmed::parse::tests::test_parse_complete_entry::case_6 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_01 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_02 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_03 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_06 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_07 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_04 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_08 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_05 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_09 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_12 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_13 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_11 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_10 ... ok
+test pubmed::tests::test_bad_date_reports_line ... ok
+test pubmed::tests::test_doi_from_aid_field ... ok
+test pubmed::tests::test_doi_from_aid_with_pii_in_lid ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_16 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_14 ... ok
+test pubmed::split::tests::test_blank_line_split_empty::case_15 ... ok
+test pubmed::tests::test_crlf_endings ... ok
+test pubmed::tests::test_fau_precedence_over_au ... ok
+test pubmed::tests::test_doi_lid_takes_precedence_over_aid ... ok
+test pubmed::tests::test_continued_line ... ok
+test pubmed::tests::test_empty_input ... ok
+test pubmed::tests::test_journal_names ... ok
+test pubmed::tests::test_line_number_in_third_citation ... ok
+test pubmed::tests::test_missing_title_reports_second_citation_line ... ok
+test pubmed::tests::test_missing_title_second_citation_span_nonzero ... ok
+test pubmed::tests::test_missing_title_error_has_span ... ok
+test pubmed::tests::test_missing_title_reports_line ... ok
+test pubmed::tests::test_journal_fallback ... ok
+test pubmed::tests::test_parse_citation_with_affiliation ... ok
+test pubmed::tests::test_parse_citation_with_au_tag ... ok
+test pubmed::tests::test_whitespace_only_input ... ok
+test pubmed::whole_lines::tests::test_continued_lines_iterator::case_3 ... ok
+test pubmed::whole_lines::tests::test_continued_lines_iterator::case_4 ... ok
+test pubmed::tests::test_parse_three_citations ... ok
+test pubmed::whole_lines::tests::test_continued_lines_iterator::case_1 ... ok
+test pubmed::whole_lines::tests::test_continued_lines_iterator::case_2 ... ok
+test pubmed::tests::test_parse_citation_with_issn ... ok
+test ris::parse::tests::test_is_metadata_line::case_1 ... ok
+test pubmed::whole_lines::tests::test_continued_lines_iterator::case_5 ... ok
+test pubmed::tests::test_parse_simple_citation ... ok
+test ris::parse::tests::test_is_metadata_line::case_4 ... ok
+test ris::parse::tests::test_is_metadata_line::case_2 ... ok
+test ris::parse::tests::test_is_metadata_line::case_3 ... ok
+test ris::parse::tests::test_is_metadata_line::case_5 ... ok
+test ris::parse::tests::test_parse_empty_input ... ok
+test ris::parse::tests::test_parse_author ... ok
+test ris::parse::tests::test_parse_ris_line_invalid::case_1 ... ok
+test ris::parse::tests::test_parse_ris_line_invalid::case_2 ... ok
+test ris::parse::tests::test_parse_ris_line_invalid::case_4 ... ok
+test ris::parse::tests::test_parse_no_valid_citations ... ok
+test ris::parse::tests::test_parse_ris_line_invalid::case_3 ... ok
+test ris::parse::tests::test_parse_ris_line_valid::case_2 ... ok
+test ris::parse::tests::test_parse_multiple_citations ... ok
+test ris::parse::tests::test_parse_ris_line_valid::case_3 ... ok
+test ris::parse::tests::test_parse_ris_line_valid::case_6 ... ok
+test ris::parse::tests::test_parse_with_metadata ... ok
+test ris::parse::tests::test_parse_ris_line_valid::case_7 ... ok
+test ris::parse::tests::test_split_authors_ampersand ... ok
+test ris::parse::tests::test_parse_ris_line_invalid::case_5 ... ok
+test ris::parse::tests::test_parse_ris_line_valid::case_1 ... ok
+test ris::parse::tests::test_parse_ris_line_valid::case_5 ... ok
+test ris::parse::tests::test_parse_simple_citation ... ok
+test ris::parse::tests::test_parse_with_invalid_lines ... ok
+test ris::parse::tests::test_split_authors_and ... ok
+test ris::parse::tests::test_split_authors_empty ... ok
+test ris::parse::tests::test_parse_ris_line_valid::case_4 ... ok
+test ris::parse::tests::test_split_authors_single ... ok
+test ris::parse::tests::test_split_authors_reported_issue ... ok
+test ris::parse::tests::test_split_authors_mixed ... ok
+test ris::structure::tests::test_add_data ... ok
+test ris::structure::tests::test_complex_doi_extraction_scenarios ... ok
+test ris::structure::tests::test_conversion_to_citation ... ok
+test ris::structure::tests::test_doi_extraction_from_urls ... ok
+test ris::parse::tests::test_split_authors_semicolon ... ok
+test ris::structure::tests::test_doi_extraction_prioritizes_doi_field ... ok
+test ris::structure::tests::test_journal_priority ... ok
+test ris::structure::tests::test_raw_ris_data_new ... ok
+test ris::tags::tests::test_as_tag::case_3 ... ok
+test ris::structure::tests::test_title_extraction_edge_cases ... ok
+test ris::tags::tests::test_as_tag::case_4 ... ok
+test ris::tags::tests::test_from_tag::case_3 ... ok
+test ris::structure::tests::test_missing_title_error ... ok
+test ris::structure::tests::test_journal_priority_with_empty_values ... ok
+test ris::tags::tests::test_as_tag::case_1 ... ok
+test ris::tags::tests::test_as_tag::case_2 ... ok
+test ris::tags::tests::test_from_tag::case_2 ... ok
+test ris::tags::tests::test_from_tag::case_1 ... ok
+test ris::tags::tests::test_from_tag::case_5 ... ok
+test ris::tags::tests::test_from_tag::case_6 ... ok
+test ris::tags::tests::test_from_tag::case_4 ... ok
+test ris::tests::test_missing_title_error_has_span ... ok
+test ris::tags::tests::test_is_author_tag::case_3 ... ok
+test ris::tags::tests::test_is_author_tag::case_1 ... ok
+test ris::tags::tests::test_is_author_tag::case_2 ... ok
+test ris::tests::test_missing_title_reports_first_citation_line ... ok
+test ris::tests::test_missing_title_reports_second_citation_line ... ok
+test ris::tests::test_parse_url_with_doi_extraction ... ok
+test ris::tests::test_parse_simple_ris ... FAILED
+test ris::tests::test_missing_title_second_citation_span_nonzero ... ok
+test ris::tests::test_parse_gs_format ... ok
+test tests::test_author_equality ... ok
+test tests::test_detect_and_parse_pubmed ... ok
+test tests::test_detect_and_parse_ris ... ok
+test ris::tests::test_syntax_error_line_accuracy ... ok
+test tests::test_detect_and_parse_empty ... ok
+test tests::test_detect_and_parse_unknown ... ok
+test utils::tests::test_parse_author_name ... ok
+test utils::tests::test_format_doi ... ok
+test utils::tests::test_parse_endnote_date ... ok
+test tests::test_detect_and_parse_endnote ... ok
+test utils::tests::test_parse_ris_date ... ok
+test utils::tests::test_parse_year_only ... ok
+test utils::tests::test_newline_delimiter_of ... ok
+test utils::tests::test_parse_month_name ... ok
+test utils::tests::test_parse_pubmed_date ... ok
+test utils::tests::test_format_page_numbers ... ok
+test utils::tests::test_split_issns ... ok
+
+failures:
+
+---- ris::tests::test_parse_simple_ris stdout ----
+
+thread 'ris::tests::test_parse_simple_ris' (25072) panicked at src\ris\mod.rs:105:9:
+assertion failed: `(left == right)`
+
+[1mDiff[0m [31m< left[0m / [32mright >[0m :
+[31m<J[0m[1;48;5;52;31mournal Article[0m
+[32m>J[0m[1;48;5;22;32mOUR[0m
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ris::tests::test_parse_simple_ris
+
+test result: FAILED. 227 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass 
+`--lib`

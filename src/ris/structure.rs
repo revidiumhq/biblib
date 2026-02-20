@@ -85,12 +85,14 @@ impl RawRisData {
 
         for (tag, values) in &self.data {
             if let Some(priority) = priority_fn(tag)
-                && priority < best_priority && !values.is_empty()
-                    && let Some(first_value) = values.first()
-                        && !first_value.trim().is_empty() {
-                            best_priority = priority;
-                            best_value = Some(first_value.clone());
-                        }
+                && priority < best_priority
+                && !values.is_empty()
+                && let Some(first_value) = values.first()
+                && !first_value.trim().is_empty()
+            {
+                best_priority = priority;
+                best_value = Some(first_value.clone());
+            }
         }
 
         best_value
@@ -111,7 +113,12 @@ impl TryFrom<RawRisData> for crate::Citation {
     type Error = crate::error::ParseError;
 
     fn try_from(mut raw: RawRisData) -> Result<Self, Self::Error> {
-        let citation_type = raw.remove(&RisTag::Type).unwrap_or_default();
+        let citation_type = raw
+            .remove(&RisTag::Type)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| map_ris_type(&t).to_string())
+            .collect();
         let title = Self::extract_title(&mut raw)?;
         let (journal, journal_abbr) = Self::extract_journal_info(&mut raw);
         let date = Self::extract_date(&mut raw);
@@ -274,10 +281,11 @@ impl crate::Citation {
                 if doi.is_none() {
                     for url in &tag_urls {
                         if url.contains("doi.org")
-                            && let Some(extracted_doi) = crate::utils::format_doi(url) {
-                                doi = Some(extracted_doi);
-                                break;
-                            }
+                            && let Some(extracted_doi) = crate::utils::format_doi(url)
+                        {
+                            doi = Some(extracted_doi);
+                            break;
+                        }
                     }
                 }
                 urls.append(&mut tag_urls);
@@ -339,6 +347,50 @@ impl crate::Citation {
     }
 }
 
+/// Maps RIS citation type abbreviations and synonyms to their full, human-readable forms.
+///
+/// See section "7.1.3. RIS tags" in the RIS specification for a list of available types.
+fn map_ris_type(abbr: &str) -> &str {
+    match abbr {
+        "ABST" => "Abstract",
+        "ADVS" => "Audiovisual Material",
+        "ART" => "Art Work",
+        "BILL" => "Bill/Resolution",
+        "BOOK" => "Book",
+        "CASE" => "Case",
+        "CHAP" => "Book Chapter",
+        "COMP" => "Computer Program",
+        "CONF" => "Conference Proceeding",
+        "CTLG" => "Catalog",
+        "DATA" => "Data File",
+        "ELEC" => "Electronic Citation",
+        "GEN" => "Generic",
+        "HEAR" => "Hearing",
+        "ICOMM" => "Internet Communication",
+        "INPR" => "In Press",
+        "JFULL" => "Journal/Periodical (Full)",
+        "JOUR" => "Journal Article",
+        "MAP" => "Map",
+        "MGZN" => "Magazine Article",
+        "MPCT" => "Motion Picture",
+        "MUSIC" => "Music Score",
+        "NEWS" => "Newspaper",
+        "PAMP" => "Pamphlet",
+        "PAT" => "Patent",
+        "PCOMM" => "Personal Communication",
+        "RPRT" => "Report",
+        "SER" => "Serial Publication",
+        "SLIDE" => "Slide",
+        "SOUND" => "Sound Recording",
+        "STAT" => "Statute",
+        "THES" => "Thesis/Dissertation",
+        "UNBILL" => "Unenacted Bill/Resolution",
+        "UNPB" => "Unpublished Work",
+        "VIDEO" => "Video Recording",
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -390,7 +442,7 @@ mod tests {
 
         let citation: crate::Citation = raw.try_into().unwrap();
         assert_eq!(citation.title, "Test Article");
-        assert_eq!(citation.citation_type, vec!["JOUR"]);
+        assert_eq!(citation.citation_type, vec!["Journal Article"]);
         assert_eq!(citation.authors.len(), 1);
     }
 

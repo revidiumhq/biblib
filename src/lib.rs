@@ -157,11 +157,11 @@ pub mod ris;
 // Reexports
 #[cfg(feature = "csv")]
 pub use csv::CsvParser;
+#[cfg(feature = "diagnostics")]
+pub use diagnostics::parse_with_diagnostics;
 #[cfg(feature = "xml")]
 pub use endnote_xml::EndNoteXmlParser;
 pub use error::{CitationError, ParseError, SourceSpan, ValueError};
-#[cfg(feature = "diagnostics")]
-pub use diagnostics::parse_with_diagnostics;
 #[cfg(feature = "pubmed")]
 pub use pubmed::PubMedParser;
 #[cfg(feature = "ris")]

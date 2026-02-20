@@ -234,7 +234,12 @@ fn parse_author(author_str: &str) -> Author {
     } else {
         crate::utils::split_given_and_middle(&given)
     };
-    Author { name: family, given_name: given_opt, middle_name: middle_opt, affiliations: Vec::new() }
+    Author {
+        name: family,
+        given_name: given_opt,
+        middle_name: middle_opt,
+        affiliations: Vec::new(),
+    }
 }
 
 /// Check if a line is RIS metadata that should be ignored.
@@ -306,7 +311,7 @@ ER  -"#;
             Some(&"Test Article".to_string())
         );
         assert_eq!(raw.authors.len(), 1);
-    assert_eq!(raw.authors[0].name, "Smith");
+        assert_eq!(raw.authors[0].name, "Smith");
     }
 
     #[test]
@@ -385,9 +390,9 @@ ER  -"#;
     #[test]
     fn test_parse_author() {
         let author = parse_author("Smith, John");
-    assert_eq!(author.name, "Smith");
-    assert_eq!(author.given_name.as_deref(), Some("John"));
-    assert!(author.affiliations.is_empty());
+        assert_eq!(author.name, "Smith");
+        assert_eq!(author.given_name.as_deref(), Some("John"));
+        assert!(author.affiliations.is_empty());
     }
 
     #[test]

@@ -108,7 +108,7 @@ MH- Keyword2
         assert_eq!(citation.pmid.as_deref(), Some("12345678"));
         assert_eq!(citation.title, "Test Article Title");
         assert_eq!(citation.authors.len(), 1);
-    assert_eq!(citation.authors[0].name, "Smith");
+        assert_eq!(citation.authors[0].name, "Smith");
         let date = citation.date.as_ref().unwrap();
         assert_eq!(date.year, 2023);
         assert_eq!(date.month, Some(1));
@@ -146,9 +146,9 @@ JT  - Test Journal
 "#;
         let parser = PubMedParser::new();
         let result = parser.parse(input).unwrap();
-        assert!(result[0].authors[0]
-            .affiliations
-            .contains(&"Department of Science, Test University New York, NY 10021, USA".to_string()));
+        assert!(result[0].authors[0].affiliations.contains(
+            &"Department of Science, Test University New York, NY 10021, USA".to_string()
+        ));
     }
 
     #[test]
@@ -204,10 +204,10 @@ AU  - Jones B
         let parser = PubMedParser::new();
         let result = parser.parse(input).unwrap();
         assert_eq!(result[0].authors.len(), 2);
-    assert_eq!(result[0].authors[0].name, "Smith");
-    assert_eq!(result[0].authors[0].given_name.as_deref(), Some("J"));
-    assert_eq!(result[0].authors[1].name, "Jones");
-    assert_eq!(result[0].authors[1].given_name.as_deref(), Some("B"));
+        assert_eq!(result[0].authors[0].name, "Smith");
+        assert_eq!(result[0].authors[0].given_name.as_deref(), Some("J"));
+        assert_eq!(result[0].authors[1].name, "Jones");
+        assert_eq!(result[0].authors[1].given_name.as_deref(), Some("B"));
     }
 
     #[test]
@@ -223,10 +223,10 @@ AU  - Zhang H
         let parser = PubMedParser::new();
         let result = parser.parse(input).unwrap();
         assert_eq!(result[0].authors.len(), 2);
-    assert_eq!(result[0].authors[0].name, "Li");
-    assert_eq!(result[0].authors[0].given_name.as_deref(), Some("Yun"));
-    assert_eq!(result[0].authors[1].name, "Zhang");
-    assert_eq!(result[0].authors[1].given_name.as_deref(), Some("Huajun"));
+        assert_eq!(result[0].authors[0].name, "Li");
+        assert_eq!(result[0].authors[0].given_name.as_deref(), Some("Yun"));
+        assert_eq!(result[0].authors[1].name, "Zhang");
+        assert_eq!(result[0].authors[1].given_name.as_deref(), Some("Huajun"));
     }
 
     #[test]
@@ -236,10 +236,10 @@ AU  - Zhang H
         let result = parser.parse(input).unwrap();
         assert_eq!(result[0].pmid.as_deref(), Some("123"));
         assert_eq!(result[0].title, "Windows");
-    assert_eq!(result[0].authors[0].given_name.as_deref(), Some("Bill"));
-    assert_eq!(result[0].authors[0].name, "Gates");
-    assert_eq!(result[0].authors[1].given_name.as_deref(), Some("Dave"));
-    assert_eq!(result[0].authors[1].name, "Cutler");
+        assert_eq!(result[0].authors[0].given_name.as_deref(), Some("Bill"));
+        assert_eq!(result[0].authors[0].name, "Gates");
+        assert_eq!(result[0].authors[1].given_name.as_deref(), Some("Dave"));
+        assert_eq!(result[0].authors[1].name, "Cutler");
     }
 
     #[test]
@@ -321,7 +321,10 @@ AID- 10.1016/j.example.2023.01.001 [doi]
 "#;
         let parser = PubMedParser::new();
         let result = parser.parse(input).unwrap();
-        assert_eq!(result[0].doi.as_deref(), Some("10.1016/j.example.2023.01.001"));
+        assert_eq!(
+            result[0].doi.as_deref(),
+            Some("10.1016/j.example.2023.01.001")
+        );
     }
 
     // ── Phase 4: line-number accuracy tests ─────────────────────────────────
@@ -332,7 +335,11 @@ AID- 10.1016/j.example.2023.01.001 [doi]
     fn test_missing_title_reports_line() {
         let input = "PMID- 12345678\nAU  - Smith, John\n\n";
         let err = PubMedParser::new().parse(input).unwrap_err();
-        assert_eq!(err.line, Some(1), "error should point to line 1 (citation start)");
+        assert_eq!(
+            err.line,
+            Some(1),
+            "error should point to line 1 (citation start)"
+        );
     }
 
     /// Second citation starts on line 4 (after blank-line separator).
@@ -368,7 +375,8 @@ AID- 10.1016/j.example.2023.01.001 [doi]
         assert!(
             span.start >= first.len(),
             "second citation span ({}) should start at or after byte {} (end of first)",
-            span.start, first.len()
+            span.start,
+            first.len()
         );
     }
 
@@ -377,8 +385,15 @@ AID- 10.1016/j.example.2023.01.001 [doi]
     fn test_bad_date_reports_line() {
         let input = "PMID- 1\nTI  - Title\nDP  - not-a-date\n\n";
         let err = PubMedParser::new().parse(input).unwrap_err();
-        assert_eq!(err.line, Some(1), "error should point back to the citation start line");
-        assert!(matches!(err.error, crate::error::ValueError::BadValue { .. }));
+        assert_eq!(
+            err.line,
+            Some(1),
+            "error should point back to the citation start line"
+        );
+        assert!(matches!(
+            err.error,
+            crate::error::ValueError::BadValue { .. }
+        ));
     }
 
     /// Multiple-citation file: only the third citation is broken; the first two

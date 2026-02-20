@@ -1,9 +1,9 @@
+use crate::error::SourceSpan;
 use crate::pubmed::author::{ConsecutiveTag, resolve_authors};
 use crate::pubmed::split::BlankLineSplit;
 use crate::pubmed::structure::RawPubmedData;
 use crate::pubmed::tags::PubmedTag;
 use crate::pubmed::whole_lines::WholeLinesIter;
-use crate::error::SourceSpan;
 use crate::utils::newline_delimiter_of;
 use either::{Either, Left, Right};
 use itertools::Itertools;
@@ -24,7 +24,12 @@ pub fn pubmed_parse<S: AsRef<str>>(nbib_text: S) -> Vec<RawPubmedData> {
         .collect() // TODO do not collect, return an Iterator instead
 }
 
-fn pubmed_parse_one(text: &str, line_break: &str, start_line: usize, start_byte: usize) -> RawPubmedData {
+fn pubmed_parse_one(
+    text: &str,
+    line_break: &str,
+    start_line: usize,
+    start_byte: usize,
+) -> RawPubmedData {
     let (mut ignored_lines, pairs): (Vec<_>, Vec<_>) =
         WholeLinesIter::new(text.split(line_break)).partition_map(parse_complete_entry);
     let (data, others) = separate_stateless_entries(pairs);

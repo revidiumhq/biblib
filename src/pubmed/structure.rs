@@ -118,7 +118,11 @@ fn join_if_some(v: Vec<String>) -> Option<String> {
 }
 
 /// Wraps [parse_pubmed_date] to change its types.
-fn parse_pubmed_date_err<S: AsRef<str>>(date: S, start_line: usize, record_span: &SourceSpan) -> Result<Date, ParseError> {
+fn parse_pubmed_date_err<S: AsRef<str>>(
+    date: S,
+    start_line: usize,
+    record_span: &SourceSpan,
+) -> Result<Date, ParseError> {
     let s = date.as_ref();
     parse_pubmed_date(s).ok_or_else(|| {
         ParseError::at_line(

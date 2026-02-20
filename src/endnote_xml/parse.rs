@@ -233,11 +233,13 @@ fn parse_record<B: BufRead>(
                 }
                 b"title" => {
                     let pos = reader.buffer_position() as usize;
-                    citation.title = extract_text_with_position(reader, buf, b"title", content, pos)?;
+                    citation.title =
+                        extract_text_with_position(reader, buf, b"title", content, pos)?;
                 }
                 b"author" => {
                     let pos = reader.buffer_position() as usize;
-                    let author_str = extract_text_with_position(reader, buf, b"author", content, pos)?;
+                    let author_str =
+                        extract_text_with_position(reader, buf, b"author", content, pos)?;
                     let (family, given) = crate::utils::parse_author_name(&author_str);
                     let (given_opt, middle_opt) = if given.is_empty() {
                         (None, None)
@@ -253,7 +255,8 @@ fn parse_record<B: BufRead>(
                 }
                 b"secondary-title" => {
                     let pos = reader.buffer_position() as usize;
-                    let sec_title = extract_text_with_position(reader, buf, b"secondary-title", content, pos)?;
+                    let sec_title =
+                        extract_text_with_position(reader, buf, b"secondary-title", content, pos)?;
                     // If no primary title, use secondary-title as title
                     if citation.title.is_empty() {
                         citation.title = sec_title;
@@ -263,7 +266,8 @@ fn parse_record<B: BufRead>(
                 }
                 b"alt-title" => {
                     let pos = reader.buffer_position() as usize;
-                    let alt_title = extract_text_with_position(reader, buf, b"alt-title", content, pos)?;
+                    let alt_title =
+                        extract_text_with_position(reader, buf, b"alt-title", content, pos)?;
                     // If no primary title or journal is set, use alt-title as title
                     if citation.title.is_empty() && citation.journal.is_none() {
                         citation.title = alt_title;
@@ -283,11 +287,15 @@ fn parse_record<B: BufRead>(
                 }
                 b"volume" => {
                     let pos = reader.buffer_position() as usize;
-                    citation.volume = Some(extract_text_with_position(reader, buf, b"volume", content, pos)?);
+                    citation.volume = Some(extract_text_with_position(
+                        reader, buf, b"volume", content, pos,
+                    )?);
                 }
                 b"number" => {
                     let pos = reader.buffer_position() as usize;
-                    citation.issue = Some(extract_text_with_position(reader, buf, b"number", content, pos)?);
+                    citation.issue = Some(extract_text_with_position(
+                        reader, buf, b"number", content, pos,
+                    )?);
                 }
                 b"pages" => {
                     let pos = reader.buffer_position() as usize;
@@ -296,7 +304,13 @@ fn parse_record<B: BufRead>(
                 }
                 b"electronic-resource-num" => {
                     let pos = reader.buffer_position() as usize;
-                    let doi = extract_text_with_position(reader, buf, b"electronic-resource-num", content, pos)?;
+                    let doi = extract_text_with_position(
+                        reader,
+                        buf,
+                        b"electronic-resource-num",
+                        content,
+                        pos,
+                    )?;
                     citation.doi = crate::utils::format_doi(&doi);
                 }
                 b"url" => {
@@ -344,21 +358,39 @@ fn parse_record<B: BufRead>(
                 }
                 b"abstract" => {
                     let pos = reader.buffer_position() as usize;
-                    citation.abstract_text = Some(extract_text_with_position(reader, buf, b"abstract", content, pos)?);
+                    citation.abstract_text = Some(extract_text_with_position(
+                        reader,
+                        buf,
+                        b"abstract",
+                        content,
+                        pos,
+                    )?);
                 }
                 b"keyword" => {
                     let pos = reader.buffer_position() as usize;
-                    citation
-                        .keywords
-                        .push(extract_text_with_position(reader, buf, b"keyword", content, pos)?);
+                    citation.keywords.push(extract_text_with_position(
+                        reader, buf, b"keyword", content, pos,
+                    )?);
                 }
                 b"language" => {
                     let pos = reader.buffer_position() as usize;
-                    citation.language = Some(extract_text_with_position(reader, buf, b"language", content, pos)?);
+                    citation.language = Some(extract_text_with_position(
+                        reader,
+                        buf,
+                        b"language",
+                        content,
+                        pos,
+                    )?);
                 }
                 b"publisher" => {
                     let pos = reader.buffer_position() as usize;
-                    citation.publisher = Some(extract_text_with_position(reader, buf, b"publisher", content, pos)?);
+                    citation.publisher = Some(extract_text_with_position(
+                        reader,
+                        buf,
+                        b"publisher",
+                        content,
+                        pos,
+                    )?);
                 }
                 b"isbn" => {
                     let pos = reader.buffer_position() as usize;

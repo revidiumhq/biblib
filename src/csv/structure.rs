@@ -292,7 +292,7 @@ mod tests {
 
         assert_eq!(raw.get_field("title"), Some(&"Test Article".to_string()));
         assert_eq!(raw.authors.len(), 1);
-    assert_eq!(raw.authors[0].name, "Smith");
+        assert_eq!(raw.authors[0].name, "Smith");
         assert!(raw.has_content());
     }
 
@@ -305,8 +305,8 @@ mod tests {
         let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0).unwrap();
 
         assert_eq!(raw.authors.len(), 2);
-    assert_eq!(raw.authors[0].name, "Smith");
-    assert_eq!(raw.authors[1].name, "Doe");
+        assert_eq!(raw.authors[0].name, "Smith");
+        assert_eq!(raw.authors[1].name, "Doe");
     }
 
     #[test]

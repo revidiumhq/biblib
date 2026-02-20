@@ -47,8 +47,8 @@ impl ParseError {
         let primary_range = self.primary_byte_range(source);
         let header_span = (filename, primary_range.clone());
 
-        let mut report = Report::build(ReportKind::Error, header_span)
-            .with_message(format!("{}", self));
+        let mut report =
+            Report::build(ReportKind::Error, header_span).with_message(format!("{}", self));
 
         // Attach a label pointing at the exact span / line.
         report = report.with_label(
@@ -121,8 +121,8 @@ pub fn parse_with_diagnostics(
 #[cfg(all(test, feature = "diagnostics"))]
 mod tests {
     use crate::{
-        error::{ParseError, SourceSpan, ValueError},
         CitationFormat,
+        error::{ParseError, SourceSpan, ValueError},
     };
 
     // ── Unit tests for ParseError::to_diagnostic ────────────────────────────
@@ -133,7 +133,10 @@ mod tests {
         let err = ParseError::at_line(1, CitationFormat::Ris, ValueError::Syntax("oops".into()))
             .with_span(SourceSpan::new(0, 10));
         let diag = err.to_diagnostic("test.ris", source);
-        assert!(diag.contains("test.ris"), "filename should appear in output");
+        assert!(
+            diag.contains("test.ris"),
+            "filename should appear in output"
+        );
     }
 
     #[test]
@@ -142,12 +145,18 @@ mod tests {
         let err = ParseError::at_line(
             2,
             CitationFormat::Ris,
-            ValueError::MissingValue { field: "title", key: "TI" },
+            ValueError::MissingValue {
+                field: "title",
+                key: "TI",
+            },
         );
         let diag = err.to_diagnostic("test.ris", source);
         assert!(diag.contains("test.ris"));
         // ariadne renders line numbers — the output should reference line 2
-        assert!(diag.contains('2'), "line 2 should appear somewhere in output");
+        assert!(
+            diag.contains('2'),
+            "line 2 should appear somewhere in output"
+        );
     }
 
     #[test]
@@ -168,12 +177,18 @@ mod tests {
         let err = ParseError::at_line(
             1,
             CitationFormat::Ris,
-            ValueError::MissingValue { field: "title", key: "TI" },
+            ValueError::MissingValue {
+                field: "title",
+                key: "TI",
+            },
         )
         .with_span(SourceSpan::new(0, 10));
         let diag = err.to_diagnostic("citations.ris", source);
         // The ValueError display text must appear in the output
-        assert!(diag.contains("TI"), "key 'TI' should appear in the diagnostic");
+        assert!(
+            diag.contains("TI"),
+            "key 'TI' should appear in the diagnostic"
+        );
     }
 
     // ── Integration tests: use actual parsers ────────────────────────────────
@@ -185,9 +200,15 @@ mod tests {
         let result = parse_with_diagnostics(&RisParser::new(), source, "input.ris");
         assert!(result.is_err(), "should fail: no title");
         let diag = result.unwrap_err();
-        assert!(diag.contains("input.ris"), "filename should appear in output");
+        assert!(
+            diag.contains("input.ris"),
+            "filename should appear in output"
+        );
         // The underlying error message includes "TI" — verify it surfaces
-        assert!(diag.contains("TI"), "missing-field key 'TI' should appear in output");
+        assert!(
+            diag.contains("TI"),
+            "missing-field key 'TI' should appear in output"
+        );
         assert!(!diag.is_empty());
     }
 
@@ -227,6 +248,9 @@ mod tests {
         use crate::{RisParser, parse_with_diagnostics};
         let source = "TY  - JOUR\nAU  - Smith\nER  -\n";
         let diag = parse_with_diagnostics(&RisParser::new(), source, "x.ris").unwrap_err();
-        assert!(diag.contains("RIS"), "format name should appear in the diagnostic");
+        assert!(
+            diag.contains("RIS"),
+            "format name should appear in the diagnostic"
+        );
     }
 }
