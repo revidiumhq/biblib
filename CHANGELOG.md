@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-06-13
+
+### Fixed
+
+- **RIS multi-line field values**: The RIS parser now correctly handles continuation lines that have no leading indentation. Previously, a line like `At present, there are no...` following an `N2` or `AB` tag was silently dropped because its first two characters (`At`) were mistaken for a tag. Continuation lines are now detected by checking for the absence of a proper RIS separator (` -`, `- `, `-`) after the two-character prefix, and their text is appended to the previous tag's value.
+
+- **RIS `M3` (Type of Work) field now included in `citation_type`**: The `M3` tag was previously unmapped and fell through to `extra_fields`. It is now recognised as `RisTag::WorkType` and its values are appended to `citation_type` alongside the `TY` value (duplicates suppressed).
+
 ## [0.4.2] - 2026-02-21
 
 ### Added

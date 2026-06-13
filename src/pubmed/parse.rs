@@ -30,19 +30,13 @@ fn pubmed_parse_one(
     start_line: usize,
     start_byte: usize,
 ) -> RawPubmedData {
-    let (mut ignored_lines, pairs): (Vec<_>, Vec<_>) =
+    let (_ignored_lines, pairs): (Vec<_>, Vec<_>) =
         WholeLinesIter::new(text.split(line_break)).partition_map(parse_complete_entry);
     let (data, others) = separate_stateless_entries(pairs);
-    let (authors, leading_affiliations) = resolve_authors(others);
-    ignored_lines.extend(
-        leading_affiliations
-            .into_iter()
-            .map(|s| format!("AD - {s}")),
-    );
+    let (authors, _leading_affiliations) = resolve_authors(others);
     RawPubmedData {
         data,
         authors,
-        ignored_lines,
         start_line,
         record_span: SourceSpan::new(start_byte, start_byte + text.len()),
     }

@@ -26,6 +26,7 @@ pub(crate) struct RawCsvData {
     /// Byte offset of the record start in the source text.
     pub(crate) byte_offset: usize,
     /// Original record for debugging (optional for memory efficiency)
+    #[allow(dead_code)]
     pub(crate) original_record: Option<Vec<String>>,
 }
 

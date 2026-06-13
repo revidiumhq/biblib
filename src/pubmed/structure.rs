@@ -11,8 +11,6 @@ pub(crate) struct RawPubmedData {
     pub(crate) data: HashMap<PubmedTag, Vec<String>>,
     /// Authors of the cited work.
     pub(crate) authors: Vec<PubmedAuthor>,
-    /// Invalid lines found in the .nbib file data, which were skipped by the parser.
-    pub(crate) ignored_lines: Vec<String>,
     /// Starting line number of this citation in the source text (1-based).
     pub(crate) start_line: usize,
     /// Byte-offset span of the entire citation chunk in the source text.
@@ -25,7 +23,6 @@ impl TryFrom<RawPubmedData> for crate::Citation {
         RawPubmedData {
             mut data,
             authors,
-            ignored_lines: _,
             start_line,
             record_span,
         }: RawPubmedData,

@@ -82,6 +82,8 @@ pub enum RisTag {
     Publisher,
     /// C2 - PMCID
     PmcId,
+    /// M3 - Type of Work
+    WorkType,
     /// ER - End of reference
     EndOfReference,
     /// Unknown tag
@@ -127,6 +129,7 @@ impl RisTag {
             "LA" => RisTag::Language,
             "PB" => RisTag::Publisher,
             "C2" => RisTag::PmcId,
+            "M3" => RisTag::WorkType,
             "ER" => RisTag::EndOfReference,
             _ => RisTag::Unknown(tag.to_string()),
         }
@@ -170,6 +173,7 @@ impl RisTag {
             RisTag::Language => "LA",
             RisTag::Publisher => "PB",
             RisTag::PmcId => "C2",
+            RisTag::WorkType => "M3",
             RisTag::EndOfReference => "ER",
             RisTag::Unknown(tag) => tag,
         }

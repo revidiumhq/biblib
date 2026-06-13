@@ -113,12 +113,19 @@ impl TryFrom<RawRisData> for crate::Citation {
     type Error = crate::error::ParseError;
 
     fn try_from(mut raw: RawRisData) -> Result<Self, Self::Error> {
-        let citation_type = raw
+        let mut citation_type: Vec<String> = raw
             .remove(&RisTag::Type)
             .unwrap_or_default()
             .into_iter()
             .map(|t| map_ris_type(&t).to_string())
             .collect();
+        if let Some(work_types) = raw.remove(&RisTag::WorkType) {
+            for wt in work_types {
+                if !wt.trim().is_empty() && !citation_type.contains(&wt) {
+                    citation_type.push(wt);
+                }
+            }
+        }
         let title = Self::extract_title(&mut raw)?;
         let (journal, journal_abbr) = Self::extract_journal_info(&mut raw);
         let date = Self::extract_date(&mut raw);

@@ -22,24 +22,49 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
     let mut current_citation = RawRisData::new();
     let mut line_number = 0;
     let text_ptr = text.as_ptr() as usize;
+    // Track the last successfully parsed non-author tag for continuation line appending.
+    let mut last_tag: Option<RisTag> = None;
 
     for raw_line in text.lines() {
         line_number += 1;
         // Compute byte start of this line via pointer arithmetic.
         let line_byte_start = raw_line.as_ptr() as usize - text_ptr;
-        let line = raw_line.trim();
 
-        // Skip empty lines
-        if line.is_empty() {
+        // Skip empty lines (but don't trim yet — we need the raw indentation to detect continuations)
+        if raw_line.trim().is_empty() {
             continue;
         }
+
+        let line_byte_end = line_byte_start + raw_line.len();
+
+        // Detect continuation lines: a line that does NOT start with a 2-char alphanum tag
+        // followed by whitespace or a dash. These are bare continuation lines that belong to
+        // the previous tag (e.g. an N2/AB abstract that wraps without indentation).
+        if is_continuation_line(raw_line) {
+            if let Some(ref tag) = last_tag {
+                if let Some(ref mut span) = current_citation.record_span {
+                    span.end = line_byte_end;
+                }
+                // Append continuation text to the last value of the tag.
+                if let Some(values) = current_citation.data.get_mut(tag)
+                    && let Some(last_val) = values.last_mut()
+                {
+                    last_val.push(' ');
+                    last_val.push_str(raw_line.trim());
+                }
+            } else {
+                // No prior tag to attach to — treat as ignored
+                current_citation.add_ignored_line(line_number, raw_line.trim().to_string());
+            }
+            continue;
+        }
+
+        let line = raw_line.trim();
 
         // Skip metadata lines
         if is_metadata_line(line) {
             continue;
         }
-
-        let line_byte_end = line_byte_start + raw_line.len();
 
         match parse_ris_line(line, line_number) {
             Ok((tag, content)) => {
@@ -50,6 +75,7 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
                             citations.push(current_citation);
                             current_citation = RawRisData::new();
                         }
+                        last_tag = None;
                         current_citation.start_line = Some(line_number);
                         current_citation.record_span =
                             Some(SourceSpan::new(line_byte_start, line_byte_end));
@@ -60,6 +86,7 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
                         if let Some(ref mut span) = current_citation.record_span {
                             span.end = line_byte_end;
                         }
+                        last_tag = None;
                         // End of current citation
                         if current_citation.has_content() {
                             citations.push(current_citation);
@@ -70,6 +97,7 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
                         if let Some(ref mut span) = current_citation.record_span {
                             span.end = line_byte_end;
                         }
+                        last_tag = None;
                         let authors = split_and_parse_authors(&content);
                         for author in authors {
                             current_citation.add_author(author);
@@ -79,6 +107,7 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
                         if let Some(ref mut span) = current_citation.record_span {
                             span.end = line_byte_end;
                         }
+                        last_tag = Some(tag.clone());
                         current_citation.add_data(tag, content);
                     }
                 }
@@ -87,6 +116,7 @@ pub(crate) fn ris_parse<S: AsRef<str>>(ris_text: S) -> Result<Vec<RawRisData>, P
                 if let Some(ref mut span) = current_citation.record_span {
                     span.end = line_byte_end;
                 }
+                last_tag = None;
                 // Add invalid lines to ignored lines with context
                 current_citation.add_ignored_line(line_number, line.to_string());
             }
@@ -240,6 +270,43 @@ fn parse_author(author_str: &str) -> Author {
         middle_name: middle_opt,
         affiliations: Vec::new(),
     }
+}
+
+/// Returns true if the line is a continuation of a previous tag value rather than a new tag.
+///
+/// A well-formed RIS tag line looks like one of:
+///   "TY  - JOUR"   (standard: 2-char tag + "  - ")
+///   "TY- JOUR"     (no space before dash)
+///   "TY-JOUR"      (minimal)
+///   "ER  -"        (end of reference)
+///
+/// A line whose first two characters are alphanumeric but whose remainder does NOT match any
+/// separator pattern is a bare continuation line belonging to the previous tag.
+fn is_continuation_line(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    if bytes.len() < 2 {
+        return true;
+    }
+    // First two chars must be ASCII alphanumeric for it to even look like a tag
+    if !bytes[0].is_ascii_alphanumeric() || !bytes[1].is_ascii_alphanumeric() {
+        return false; // invalid tag chars — let parse_ris_line produce an error
+    }
+    // Check for the known separator patterns at position 2+
+    if bytes.len() >= 6 && &bytes[2..6] == b"  - " {
+        return false; // "TY  - ..." — proper tag
+    }
+    if bytes.len() >= 5 && &bytes[2..5] == b"  -" {
+        return false; // "ER  -" — proper tag (no trailing content)
+    }
+    if bytes.len() >= 4 && &bytes[2..4] == b"- " {
+        return false; // "TY- JOUR"
+    }
+    if bytes.len() >= 3 && bytes[2] == b'-' {
+        return false; // "TY-JOUR" minimal
+    }
+    // Two alphanumeric chars followed by a space but no dash — continuation line
+    // e.g. "At present, there are no..." where "At" looks like a tag but has no dash
+    true
 }
 
 /// Check if a line is RIS metadata that should be ignored.
@@ -450,5 +517,32 @@ ER  -"#;
     fn test_split_authors_empty() {
         let authors = split_and_parse_authors("");
         assert!(authors.is_empty());
+    }
+
+    #[test]
+    fn test_n2_continuation_line_without_leading_space() {
+        // Real-world case: N2 abstract where the second line has no leading space/indent.
+        let input = "TY  - JOUR\nTI  - Test\nN2  - Brief Summary\nAt present, there are no relevant studies.\nER  -\n";
+        let result = ris_parse(input).unwrap();
+        assert_eq!(result.len(), 1);
+        let abstract_val = result[0].get_first(&RisTag::AbstractAlternative).unwrap();
+        assert!(
+            abstract_val.contains("At present"),
+            "continuation line should be appended to N2: got '{}'",
+            abstract_val
+        );
+        assert_eq!(
+            abstract_val,
+            "Brief Summary At present, there are no relevant studies."
+        );
+    }
+
+    #[test]
+    fn test_ab_continuation_line_without_leading_space() {
+        let input = "TY  - JOUR\nTI  - Test\nAB  - First sentence.\nSecond sentence continues here.\nER  -\n";
+        let result = ris_parse(input).unwrap();
+        assert_eq!(result.len(), 1);
+        let abstract_val = result[0].get_first(&RisTag::Abstract).unwrap();
+        assert!(abstract_val.contains("Second sentence continues here."));
     }
 }

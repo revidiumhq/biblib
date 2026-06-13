@@ -244,6 +244,65 @@ ER  -"#;
 
     /// Line numbers for syntax errors (bad tag characters) must be accurate.
     #[test]
+    fn test_m3_included_in_citation_type() {
+        let input = "TY  - JOUR\nTI  - Test\nM3  - Randomized Controlled Trial\nER  -\n";
+        let citations = RisParser::new().parse(input).unwrap();
+        assert!(
+            citations[0]
+                .citation_type
+                .contains(&"Randomized Controlled Trial".to_string()),
+            "M3 value should appear in citation_type; got {:?}",
+            citations[0].citation_type
+        );
+        assert!(
+            citations[0]
+                .citation_type
+                .contains(&"Journal Article".to_string()),
+            "TY value should still be present"
+        );
+    }
+
+    #[test]
+    fn test_ab_absent_falls_back_to_n2() {
+        let input = "TY  - JOUR\nTI  - Test\nN2  - Abstract from N2 field.\nER  -\n";
+        let citations = RisParser::new().parse(input).unwrap();
+        assert_eq!(
+            citations[0].abstract_text.as_deref(),
+            Some("Abstract from N2 field."),
+            "should fall back to N2 when AB is absent"
+        );
+    }
+
+    #[test]
+    fn test_ab_takes_priority_over_n2() {
+        let input =
+            "TY  - JOUR\nTI  - Test\nAB  - Primary abstract.\nN2  - Fallback abstract.\nER  -\n";
+        let citations = RisParser::new().parse(input).unwrap();
+        assert_eq!(
+            citations[0].abstract_text.as_deref(),
+            Some("Primary abstract."),
+            "AB should take priority over N2"
+        );
+    }
+
+    #[test]
+    fn test_n2_multiline_no_indent() {
+        let input = concat!(
+            "TY  - JOUR\n",
+            "TI  - Test\n",
+            "N2  - Brief Summary\n",
+            "At present, there are no relevant studies.\n",
+            "ER  -\n",
+        );
+        let citations = RisParser::new().parse(input).unwrap();
+        assert_eq!(
+            citations[0].abstract_text.as_deref(),
+            Some("Brief Summary At present, there are no relevant studies."),
+            "continuation line should be joined into N2"
+        );
+    }
+
+    #[test]
     fn test_syntax_error_line_accuracy() {
         // !! on line 3 is invalid; the line is captured in ignored_lines.
         // We verify through the raw parser (crate-internal path).

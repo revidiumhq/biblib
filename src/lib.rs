@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+#![allow(clippy::type_complexity)]
 //! A comprehensive library for parsing, managing, and deduplicating academic citations.
 //!
 //! `biblib` provides robust functionality for working with academic citations in various formats.
