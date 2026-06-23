@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-06-23
+
+### Fixed
+
+- **RIS repeated abstract tags**: The RIS parser now merges repeated `AB` tags into a single `abstract_text` value instead of keeping only the first one. Repeated `N2` tags are merged the same way when `AB` is absent, and `AB` still takes priority over `N2`.
+
 ## [0.4.3] - 2026-06-13
 
 ### Fixed
