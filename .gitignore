@@ -1,2 +1,17 @@
 /target
 tarpaulin-report.html
+# Devenv
+.devenv*
+devenv.lock
+devenv.local.nix
+devenv.local.yaml
+.envrc
+devenv.nix
+devenv.yaml
+rust-toolchain.toml
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml

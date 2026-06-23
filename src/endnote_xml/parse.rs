@@ -32,7 +32,7 @@ fn extract_text_with_position<B: BufRead>(
         let current_pos = reader.buffer_position() as usize;
         match reader.read_event_into(buf) {
             Ok(Event::Text(e)) => {
-                text.push_str(&e.unescape().map_err(|e| {
+                text.push_str(&e.xml_content().map_err(|e| {
                     let line_num = buffer_position_to_line_number(content, current_pos);
                     ParseError::at_line(
                         line_num,
