@@ -286,6 +286,41 @@ ER  -"#;
     }
 
     #[test]
+    fn test_multiple_ab_tags_are_joined() {
+        let input = concat!(
+            "TY  - JOUR\n",
+            "TI  - Test\n",
+            "AB  - First paragraph.\n",
+            "AB  - Second paragraph.\n",
+            "AB  - Third paragraph.\n",
+            "ER  -\n",
+        );
+        let citations = RisParser::new().parse(input).unwrap();
+        assert_eq!(
+            citations[0].abstract_text.as_deref(),
+            Some("First paragraph.\n\nSecond paragraph.\n\nThird paragraph."),
+            "repeated AB tags should be merged into one abstract"
+        );
+    }
+
+    #[test]
+    fn test_multiple_n2_tags_are_joined_when_ab_is_absent() {
+        let input = concat!(
+            "TY  - JOUR\n",
+            "TI  - Test\n",
+            "N2  - First fallback paragraph.\n",
+            "N2  - Second fallback paragraph.\n",
+            "ER  -\n",
+        );
+        let citations = RisParser::new().parse(input).unwrap();
+        assert_eq!(
+            citations[0].abstract_text.as_deref(),
+            Some("First fallback paragraph.\n\nSecond fallback paragraph."),
+            "repeated N2 tags should be merged when no AB is present"
+        );
+    }
+
+    #[test]
     fn test_n2_multiline_no_indent() {
         let input = concat!(
             "TY  - JOUR\n",

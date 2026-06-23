@@ -319,14 +319,30 @@ impl crate::Citation {
     /// Extract abstract text from primary or alternative abstract fields.
     fn extract_abstract(raw: &mut RawRisData) -> Option<String> {
         let abstract_text = raw
-            .get_first(&RisTag::Abstract)
-            .or_else(|| raw.get_first(&RisTag::AbstractAlternative))
-            .cloned();
+            .remove(&RisTag::Abstract)
+            .and_then(Self::join_field_values)
+            .or_else(|| {
+                raw.remove(&RisTag::AbstractAlternative)
+                    .and_then(Self::join_field_values)
+            });
 
+        // Ensure both abstract variants are removed before collecting extra fields.
         raw.remove(&RisTag::Abstract);
         raw.remove(&RisTag::AbstractAlternative);
 
         abstract_text
+    }
+
+    /// Join repeated RIS field values while preserving paragraph boundaries.
+    fn join_field_values(values: Vec<String>) -> Option<String> {
+        let joined = values
+            .into_iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        (!joined.is_empty()).then_some(joined)
     }
 
     /// Extract language and publisher metadata.
