@@ -183,6 +183,34 @@ ER  -"#;
         assert_eq!(result[0].doi, Some("10.1000/test".to_string()));
     }
 
+    #[test]
+    fn test_parse_accession_number_from_an() {
+        let input = r#"TY  - JOUR
+TI  - Test Article
+AN  - ACC-123
+ER  -"#;
+
+        let citation = RisParser::new().parse(input).unwrap().remove(0);
+        assert_eq!(citation.accession_number.as_deref(), Some("ACC-123"));
+    }
+
+    #[test]
+    fn test_id_remains_in_extra_fields_when_an_present() {
+        let input = r#"TY  - JOUR
+TI  - Test Article
+AN  - ACC-123
+ID  - REF-456
+ER  -"#;
+
+        let citation = RisParser::new().parse(input).unwrap().remove(0);
+        assert_eq!(citation.accession_number.as_deref(), Some("ACC-123"));
+        assert_eq!(citation.pmid, None);
+        assert_eq!(
+            citation.extra_fields.get("ID"),
+            Some(&vec!["REF-456".to_string()])
+        );
+    }
+
     // ── Phase 4: line-number accuracy tests ─────────────────────────────────
 
     /// Missing TI in the very first citation (TY on line 1) must report line 1.

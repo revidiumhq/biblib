@@ -30,6 +30,7 @@ impl SourceSpan {
 pub mod fields {
     pub const TITLE: &str = "title";
     pub const AUTHOR: &str = "author";
+    pub const ACCESSION_NUMBER: &str = "accession_number";
     pub const DATE: &str = "date";
     pub const JOURNAL: &str = "journal";
     pub const JOURNAL_ABBR: &str = "journal_abbr";
@@ -278,6 +279,7 @@ mod tests {
         assert_eq!(format!("{}", CitationFormat::PubMed), "PubMed");
         assert_eq!(format!("{}", CitationFormat::EndNoteXml), "EndNote XML");
         assert_eq!(format!("{}", CitationFormat::Csv), "CSV");
+        assert_eq!(format!("{}", CitationFormat::IctrpCsv), "ICTRP CSV");
     }
 
     #[cfg(feature = "csv")]

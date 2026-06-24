@@ -33,10 +33,12 @@ RIS (Research Information Systems) uses two-letter tags to identify fields. Each
 | IS | Issue | |
 | SP, EP | Start/End page | Combined into page range |
 | DO | DOI | |
+| AN | Accession number | Mapped to `accession_number` |
 | AB, N2 | Abstract | AB takes priority |
 | KW | Keywords | One per line |
 | SN | ISSN/ISBN | |
 | UR, L1-L4, LK | URLs | All collected |
+| ID | Reference ID | Preserved in `extra_fields` |
 | ER | End of reference | Marks end of record |
 
 ### Multi-Author Handling
@@ -164,6 +166,7 @@ EndNote XML uses a nested XML structure with specific element names.
 | `<number>` | Issue | |
 | `<pages>` | Pages | |
 | `<electronic-resource-num>` | DOI | |
+| `<accession-num>` | Accession number | |
 | `<url>` | URL | |
 | `<abstract>` | Abstract | |
 | `<keyword>` | Keywords | Inside `<keywords>` |
@@ -217,6 +220,34 @@ Authors
 ```
 
 Results in 3 separate authors.
+
+---
+
+## ICTRP CSV Format
+
+ICTRP exports are parsed by the dedicated `IctrpCsvParser`, which reuses the CSV reader but applies ICTRP-specific field mapping.
+
+### Key Field Mappings
+
+| ICTRP Column | Field | Notes |
+|--------------|-------|-------|
+| `TrialID` | `accession_number` | Required canonical registry identifier |
+| `Scientific title` | `title` | Primary title |
+| `Public title` | `title` fallback | Also preserved in `extra_fields` |
+| `Date registration3` | `date` | Preferred compact `YYYYMMDD` source |
+| `Date registration` | `date` fallback | Supports slash-separated dates |
+| `Primary sponsor` | `publisher` | |
+| `Study type` | `citation_type` | Stored after `Clinical Trial` when present |
+| `web address` | `urls` | Deduplicated with results URLs |
+| `results url link` | `urls` | |
+| `results url protocol` | `urls` | |
+| `Secondary ID` | `extra_fields` | Preserved raw |
+
+### Notes
+
+- `citation_type` always starts with `Clinical Trial`; `Study type` is appended second when present and distinct.
+- `authors` is left empty because ICTRP exports sponsor and contact metadata rather than article authors.
+- Remaining non-empty ICTRP columns are preserved in `extra_fields`.
 
 ### Auto-Detection
 

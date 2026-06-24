@@ -18,6 +18,10 @@ pub(crate) const DEFAULT_HEADERS: &[(&str, &[&str])] = &[
     ("issue", &["issue", "number", "no"]),
     ("pages", &["pages", "page numbers", "page range"]),
     ("doi", &["doi", "digital object identifier"]),
+    (
+        "accession_number",
+        &["accession number", "accession_number"],
+    ),
     ("abstract", &["abstract", "summary"]),
     ("keywords", &["keywords", "tags"]),
     ("issn", &["issn"]),

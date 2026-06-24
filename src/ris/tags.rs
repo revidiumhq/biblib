@@ -54,6 +54,8 @@ pub enum RisTag {
     EndPage,
     /// DO - DOI
     Doi,
+    /// AN - Accession number
+    AccessionNumber,
     /// ID - Reference ID
     ReferenceId,
     /// AB - Abstract
@@ -115,6 +117,7 @@ impl RisTag {
             "SP" => RisTag::StartPage,
             "EP" => RisTag::EndPage,
             "DO" => RisTag::Doi,
+            "AN" => RisTag::AccessionNumber,
             "ID" => RisTag::ReferenceId,
             "AB" => RisTag::Abstract,
             "N2" => RisTag::AbstractAlternative,
@@ -159,6 +162,7 @@ impl RisTag {
             RisTag::StartPage => "SP",
             RisTag::EndPage => "EP",
             RisTag::Doi => "DO",
+            RisTag::AccessionNumber => "AN",
             RisTag::ReferenceId => "ID",
             RisTag::Abstract => "AB",
             RisTag::AbstractAlternative => "N2",
@@ -232,6 +236,7 @@ mod tests {
     #[case("TI", RisTag::Title)]
     #[case("AU", RisTag::Author)]
     #[case("JF", RisTag::JournalFull)]
+    #[case("AN", RisTag::AccessionNumber)]
     #[case("ER", RisTag::EndOfReference)]
     #[case("UNKNOWN", RisTag::Unknown("UNKNOWN".to_string()))]
     fn test_from_tag(#[case] input: &str, #[case] expected: RisTag) {

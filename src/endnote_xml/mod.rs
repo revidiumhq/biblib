@@ -148,6 +148,7 @@ mod integration_tests {
       <language>English</language>
       <publisher>Elsevier</publisher>
       <isbn>1877-7503</isbn>
+      <accession-num>ENDNOTE-123</accession-num>
       <custom2>PMC9876543</custom2>
     </record>
     <record>
@@ -206,6 +207,7 @@ mod integration_tests {
         assert_eq!(citation1.language, Some("English".to_string()));
         assert_eq!(citation1.publisher, Some("Elsevier".to_string()));
         assert_eq!(citation1.issn, vec!["1877-7503".to_string()]); // From ISBN field
+        assert_eq!(citation1.accession_number, Some("ENDNOTE-123".to_string()));
         assert_eq!(citation1.pmc_id, Some("PMC9876543".to_string()));
 
         // Test second citation
@@ -243,6 +245,25 @@ mod integration_tests {
         let citations = parse_endnote_xml(xml).unwrap();
         assert_eq!(citations.len(), 1);
         assert_eq!(citations[0].title, "Minimal Citation");
+    }
+
+    #[test]
+    fn test_accession_num_is_parsed() {
+        let xml = r#"
+        <xml>
+          <records>
+            <record>
+              <titles>
+                <title>Minimal Citation</title>
+              </titles>
+              <accession-num>ACC-789</accession-num>
+            </record>
+          </records>
+        </xml>
+        "#;
+
+        let citations = parse_endnote_xml(xml).unwrap();
+        assert_eq!(citations[0].accession_number.as_deref(), Some("ACC-789"));
     }
 
     #[test]

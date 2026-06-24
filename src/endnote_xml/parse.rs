@@ -285,6 +285,16 @@ fn parse_record<B: BufRead>(
                         citation.pmc_id = Some(text);
                     }
                 }
+                b"accession-num" => {
+                    let pos = reader.buffer_position() as usize;
+                    citation.accession_number = Some(extract_text_with_position(
+                        reader,
+                        buf,
+                        b"accession-num",
+                        content,
+                        pos,
+                    )?);
+                }
                 b"volume" => {
                     let pos = reader.buffer_position() as usize;
                     citation.volume = Some(extract_text_with_position(
