@@ -131,6 +131,7 @@ impl TryFrom<RawRisData> for crate::Citation {
         let date = Self::extract_date(&mut raw);
         let (volume, issue, pages) = Self::extract_publication_details(&mut raw);
         let (doi, urls) = Self::extract_doi_and_urls(&mut raw);
+        let accession_number = Self::extract_accession_number(&mut raw);
         let (pmid, pmc_id) = Self::extract_identifiers(&mut raw);
         let abstract_text = Self::extract_abstract(&mut raw);
         let keywords = raw.remove(&RisTag::Keywords).unwrap_or_default();
@@ -150,6 +151,7 @@ impl TryFrom<RawRisData> for crate::Citation {
             pages,
             issn,
             doi,
+            accession_number,
             pmid,
             pmc_id,
             abstract_text,
@@ -302,18 +304,20 @@ impl crate::Citation {
         (doi, urls)
     }
 
-    /// Extract PMID and PMC ID identifiers.
-    fn extract_identifiers(raw: &mut RawRisData) -> (Option<String>, Option<String>) {
-        let pmid = raw
-            .remove(&RisTag::ReferenceId)
-            .and_then(|v| v.into_iter().next());
+    /// Extract accession number from the RIS AN tag.
+    fn extract_accession_number(raw: &mut RawRisData) -> Option<String> {
+        raw.remove(&RisTag::AccessionNumber)
+            .and_then(|v| v.into_iter().next())
+    }
 
+    /// Extract normalized identifiers while preserving raw reference IDs.
+    fn extract_identifiers(raw: &mut RawRisData) -> (Option<String>, Option<String>) {
         let pmc_id = raw
             .remove(&RisTag::PmcId)
             .and_then(|v| v.into_iter().next())
             .filter(|s| s.contains("PMC"));
 
-        (pmid, pmc_id)
+        (None, pmc_id)
     }
 
     /// Extract abstract text from primary or alternative abstract fields.

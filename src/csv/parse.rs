@@ -13,6 +13,15 @@ pub fn csv_parse<S: AsRef<str>>(
     csv_text: S,
     config: &CsvConfig,
 ) -> Result<Vec<RawCsvData>, ParseError> {
+    csv_parse_with_format(csv_text, config, CitationFormat::Csv)
+}
+
+/// Parse CSV content while attributing errors to a specific format.
+pub(crate) fn csv_parse_with_format<S: AsRef<str>>(
+    csv_text: S,
+    config: &CsvConfig,
+    format: CitationFormat,
+) -> Result<Vec<RawCsvData>, ParseError> {
     let text = csv_text.as_ref();
 
     if text.trim().is_empty() {
@@ -22,7 +31,7 @@ pub fn csv_parse<S: AsRef<str>>(
     // Validate configuration
     config.validate().map_err(|msg| {
         ParseError::without_position(
-            CitationFormat::Csv,
+            format.clone(),
             ValueError::Syntax(format!("Invalid CSV configuration: {}", msg)),
         )
     })?;
@@ -44,7 +53,7 @@ pub fn csv_parse<S: AsRef<str>>(
             .headers()
             .map_err(|e| {
                 ParseError::without_position(
-                    CitationFormat::Csv,
+                    format.clone(),
                     ValueError::Syntax(format!("Header parsing error: {}", e)),
                 )
             })?
@@ -55,7 +64,7 @@ pub fn csv_parse<S: AsRef<str>>(
         // Use column numbers as headers if no headers present
         let first_record = reader.headers().map_err(|e| {
             ParseError::without_position(
-                CitationFormat::Csv,
+                format.clone(),
                 ValueError::Syntax(format!("Failed to read first record: {}", e)),
             )
         })?;
@@ -66,7 +75,7 @@ pub fn csv_parse<S: AsRef<str>>(
 
     if headers.is_empty() {
         return Err(ParseError::without_position(
-            CitationFormat::Csv,
+            format.clone(),
             ValueError::Syntax("No headers found in CSV".to_string()),
         ));
     }
@@ -80,13 +89,13 @@ pub fn csv_parse<S: AsRef<str>>(
             if let Some(position) = e.position() {
                 ParseError::at_line(
                     position.line() as usize,
-                    CitationFormat::Csv,
+                    format.clone(),
                     ValueError::Syntax(format!("CSV parsing error: {}", e)),
                 )
             } else {
                 ParseError::at_line(
                     line_number,
-                    CitationFormat::Csv,
+                    format.clone(),
                     ValueError::Syntax(format!("CSV parsing error: {}", e)),
                 )
             }
@@ -100,14 +109,14 @@ pub fn csv_parse<S: AsRef<str>>(
         let byte_offset = record.position().map(|p| p.byte() as usize).unwrap_or(0);
 
         let raw_citation =
-            RawCsvData::from_record(&headers, &record, config, line_number, byte_offset)?;
+            RawCsvData::from_record(&headers, &record, config, line_number, byte_offset, &format)?;
 
         if raw_citation.has_content() {
             raw_citations.push(raw_citation);
         } else if !config.flexible {
             return Err(ParseError::at_line(
                 line_number,
-                CitationFormat::Csv,
+                format.clone(),
                 ValueError::Syntax("Record contains no meaningful content".to_string()),
             ));
         }

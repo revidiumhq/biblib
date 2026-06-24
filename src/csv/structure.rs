@@ -38,6 +38,7 @@ impl RawCsvData {
         config: &CsvConfig,
         line_number: usize,
         byte_offset: usize,
+        format: &CitationFormat,
     ) -> Result<Self, ParseError> {
         let mut fields = HashMap::new();
         let mut authors = Vec::new();
@@ -57,7 +58,7 @@ impl RawCsvData {
                 if !config.flexible {
                     return Err(ParseError::at_line(
                         line_number,
-                        CitationFormat::Csv,
+                        format.clone(),
                         ValueError::Syntax(format!(
                             "Record has more fields ({}) than headers ({})",
                             record.len(),
@@ -194,6 +195,7 @@ impl RawCsvData {
             pages,
             issn: self.issn.clone(),
             doi,
+            accession_number: self.get_field("accession_number").cloned(),
             pmid: self.get_field("pmid").cloned(),
             pmc_id: self.get_field("pmc_id").cloned(),
             abstract_text,
@@ -243,6 +245,7 @@ fn is_standard_field(field_name: &str, config: &CsvConfig) -> bool {
         "issue",
         "pages",
         "doi",
+        "accession_number",
         "pmid",
         "pmc_id",
         "abstract",
@@ -289,7 +292,8 @@ mod tests {
         let record = create_test_record(&["Test Article", "Smith, John"]);
         let config = CsvConfig::new();
 
-        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0).unwrap();
+        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0, &CitationFormat::Csv)
+            .unwrap();
 
         assert_eq!(raw.get_field("title"), Some(&"Test Article".to_string()));
         assert_eq!(raw.authors.len(), 1);
@@ -303,7 +307,8 @@ mod tests {
         let record = create_test_record(&["Smith, John; Doe, Jane"]);
         let config = CsvConfig::new();
 
-        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0).unwrap();
+        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0, &CitationFormat::Csv)
+            .unwrap();
 
         assert_eq!(raw.authors.len(), 2);
         assert_eq!(raw.authors[0].name, "Smith");
@@ -316,7 +321,8 @@ mod tests {
         let record = create_test_record(&["keyword1; keyword2; keyword3"]);
         let config = CsvConfig::new();
 
-        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0).unwrap();
+        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0, &CitationFormat::Csv)
+            .unwrap();
 
         assert_eq!(raw.keywords.len(), 3);
         assert!(raw.keywords.contains(&"keyword1".to_string()));
@@ -328,7 +334,8 @@ mod tests {
         let record = create_test_record(&["Test Article", "Extra Field"]);
         let config = CsvConfig::new(); // flexible = false by default
 
-        let result = RawCsvData::from_record(&headers, &record, &config, 1, 0);
+        let result =
+            RawCsvData::from_record(&headers, &record, &config, 1, 0, &CitationFormat::Csv);
         assert!(result.is_err());
     }
 
@@ -339,7 +346,8 @@ mod tests {
         let mut config = CsvConfig::new();
         config.set_flexible(true);
 
-        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0).unwrap();
+        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0, &CitationFormat::Csv)
+            .unwrap();
         assert_eq!(raw.get_field("title"), Some(&"Test Article".to_string()));
     }
 
@@ -353,7 +361,8 @@ mod tests {
         let record = create_test_record(&["Test Article", "Smith, John", "2023"]);
         let config = CsvConfig::new();
 
-        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0).unwrap();
+        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0, &CitationFormat::Csv)
+            .unwrap();
         let citation: crate::Citation = raw.try_into().unwrap();
 
         assert_eq!(citation.title, "Test Article");
@@ -367,7 +376,8 @@ mod tests {
         let record = create_test_record(&["Smith, John"]);
         let config = CsvConfig::new();
 
-        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0).unwrap();
+        let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0, &CitationFormat::Csv)
+            .unwrap();
         let result: Result<crate::Citation, _> = raw.try_into();
 
         // The error is now converted through the legacy bridge

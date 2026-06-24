@@ -84,6 +84,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
                         .filter_map(parse_doi_from_lid)
                         .next()
                 }),
+            accession_number: None,
             pmid: data
                 .remove(&PubmedTag::PubmedUniqueIdentifier)
                 .and_then(join_if_some),

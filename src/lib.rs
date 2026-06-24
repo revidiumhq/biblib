@@ -2,139 +2,147 @@
 #![allow(clippy::type_complexity)]
 //! A comprehensive library for parsing, managing, and deduplicating academic citations.
 //!
-//! `biblib` provides robust functionality for working with academic citations in various formats.
-//! It focuses on accurate parsing, format conversion, and intelligent deduplication of citations.
+//! `biblib` parses citation exports from multiple sources into one normalized
+//! [`Citation`] model, then optionally deduplicates the result set.
 //!
-//! # Features
+//! It is designed for ingestion pipelines, review tooling, registry imports,
+//! and any workflow that needs to reconcile heterogeneous citation files.
 //!
-//! The library has several optional features that can be enabled in your Cargo.toml:
+//! # What You Get
 //!
-//! - `csv` - Enable CSV format support (enabled by default)
-//! - `pubmed` - Enable PubMed/MEDLINE format support (enabled by default)  
-//! - `xml` - Enable EndNote XML support (enabled by default)
-//! - `ris` - Enable RIS format support (enabled by default)
-//! - `dedupe` - Enable citation deduplication (enabled by default)
+//! - Dedicated parsers for RIS, PubMed / MEDLINE, EndNote XML, generic CSV,
+//!   and ICTRP CSV exports
+//! - A shared [`Citation`] output type with normalized identifiers such as DOI,
+//!   PMID, PMCID, and `accession_number`
+//! - Preservation of source-specific leftovers through `extra_fields`
+//! - Optional duplicate detection via [`dedupe::Deduplicator`]
+//! - Optional human-friendly parse diagnostics with the `diagnostics` feature
 //!
-//! To use only specific features, disable default features and enable just what you need:
-//!
-//! ```toml
-//! [dependencies]
-//! biblib = { version = "0.3.0", default-features = false, features = ["csv", "ris"] }
-//! ```
-//!
-//! # Key Characteristics
-//!
-//! - **Multiple Format Support**: Parse citations from:
-//!   - RIS (Research Information Systems)
-//!   - PubMed/MEDLINE
-//!   - EndNote XML
-//!   - CSV with configurable mappings
-//!
-//! - **Rich Metadata Support**:
-//!   - Authors with affiliations
-//!   - Journal details (name, abbreviation, ISSN)
-//!   - DOIs and other identifiers
-//!   - Complete citation metadata
-//!
-//! # Basic Usage
+//! # Quick Start
 //!
 //! ```rust
 //! use biblib::{CitationParser, RisParser};
 //!
-//! // Parse RIS format
 //! let input = r#"TY  - JOUR
 //! TI  - Example Article
 //! AU  - Smith, John
+//! DO  - 10.1000/example
 //! ER  -"#;
 //!
-//! let parser = RisParser::new();
-//! let citations = parser.parse(input).unwrap();
-//! println!("Title: {}", citations[0].title);
-//! ```
-//! # Citation Formats
+//! let citations = RisParser::new().parse(input).unwrap();
 //!
-//! Each format has a dedicated parser with format-specific features:
-//!
-//! ```rust
-//! use biblib::{RisParser, PubMedParser, EndNoteXmlParser, csv::CsvParser};
-//!
-//! // RIS format
-//! let ris = RisParser::new();
-//!
-//! // PubMed format
-//! let pubmed = PubMedParser::new();
-//!
-//! // EndNote XML format
-//! let endnote = EndNoteXmlParser::new();
-//!
-//! // CSV format
-//! let csv = CsvParser::new();
+//! assert_eq!(citations.len(), 1);
+//! assert_eq!(citations[0].title, "Example Article");
+//! assert_eq!(citations[0].doi.as_deref(), Some("10.1000/example"));
 //! ```
 //!
-//! # Citation Deduplication
+//! # Supported Parsers
 //!
 //! ```rust
-//! use biblib::{Citation, CitationParser, RisParser};
+//! use biblib::{CitationParser, EndNoteXmlParser, IctrpCsvParser, PubMedParser, RisParser};
+//! use biblib::csv::CsvParser;
 //!
-//! let ris_input = r#"TY  - JOUR
-//! TI  - Example Citation 1
-//! AU  - Smith, John
-//! ER  -
+//! let _ris = RisParser::new();
+//! let _pubmed = PubMedParser::new();
+//! let _endnote = EndNoteXmlParser::new();
+//! let _csv = CsvParser::new();
+//! let _ictrp = IctrpCsvParser::new();
+//! ```
 //!
-//! TY  - JOUR
-//! TI  - Example Citation 2
-//! AU  - Smith, John
-//! ER  -"#;
+//! # Auto-Detection
 //!
-//! let parser = RisParser::new();
-//! let mut citations = parser.parse(ris_input).unwrap();
+//! [`detect_and_parse`] currently auto-detects RIS, PubMed, EndNote XML, and
+//! ICTRP CSV. Generic CSV remains explicit because header mapping is
+//! application-specific.
 //!
-//! // Configure deduplication
+//! ```rust
+//! use biblib::detect_and_parse;
+//!
+//! let input = "TY  - JOUR\nTI  - Example\nER  -";
+//! let (citations, format) = detect_and_parse(input).unwrap();
+//!
+//! assert_eq!(format.as_str(), "RIS");
+//! assert_eq!(citations[0].title, "Example");
+//! ```
+//!
+//! # Feature Flags
+//!
+//! Disable default features when you only need a subset of parsers:
+//!
+//! ```toml
+//! [dependencies]
+//! biblib = { version = "0.5", default-features = false, features = ["ris", "csv"] }
+//! ```
+//!
+//! Available public features:
+//!
+//! - `ris`
+//! - `pubmed`
+//! - `xml`
+//! - `csv`
+//! - `dedupe`
+//! - `diagnostics`
+//!
+//! Since `v0.5`, `biblib` no longer uses the `regex` crate or exposes regex
+//! backend feature flags. It uses `regex-lite` internally, and regex backend
+//! choice is not part of the public feature surface.
+//!
+//! # Deduplication
+//!
+//! ```rust
 //! use biblib::dedupe::{Deduplicator, DeduplicatorConfig};
+//! use biblib::{Citation, Date};
 //!
-//! // Configure deduplication
+//! let citations = vec![
+//!     Citation {
+//!         title: "Example Title".to_string(),
+//!         doi: Some("10.1000/example".to_string()),
+//!         date: Some(Date { year: 2023, month: None, day: None }),
+//!         journal: Some("Example Journal".to_string()),
+//!         ..Default::default()
+//!     },
+//!     Citation {
+//!         title: "Example Title".to_string(),
+//!         doi: Some("10.1000/example".to_string()),
+//!         date: Some(Date { year: 2023, month: None, day: None }),
+//!         journal: Some("Example Journal".to_string()),
+//!         ..Default::default()
+//!     },
+//! ];
+//!
 //! let config = DeduplicatorConfig {
 //!     group_by_year: true,
 //!     run_in_parallel: true,
-//!     ..Default::default()
+//!     source_preferences: vec!["PubMed".to_string()],
 //! };
 //!
-//! let deduplicator = Deduplicator::new().with_config(config);
-//! let duplicate_groups = deduplicator.find_duplicates(&citations).unwrap();
+//! let groups = Deduplicator::new()
+//!     .with_config(config)
+//!     .find_duplicates(&citations)
+//!     .unwrap();
 //!
-//! for group in duplicate_groups {
-//!     println!("Original: {}", group.unique.title);
-//!     for duplicate in group.duplicates {
-//!         println!("  Duplicate: {}", duplicate.title);
-//!     }
-//! }
+//! let duplicate_group = groups
+//!     .iter()
+//!     .find(|group| group.unique.doi.as_deref() == Some("10.1000/example"))
+//!     .unwrap();
+//!
+//! assert_eq!(duplicate_group.duplicates.len(), 1);
 //! ```
 //!
-//! # Error Handling
+//! # Errors and Diagnostics
 //!
-//! The library uses a custom [`Result`] type that wraps [`CitationError`] for consistent
-//! error handling across all operations:
+//! Parsers return [`ParseError`] with line numbers and, when available, source
+//! spans.
 //!
 //! ```rust
-//! use biblib::{CitationParser, RisParser, CitationError};
+//! use biblib::{CitationParser, RisParser, ValueError};
 //!
-//! let result = RisParser::new().parse("invalid input");
-//! match result {
-//!     Ok(citations) => println!("Parsed {} citations", citations.len()),
-//!     Err(e) => eprintln!("Parse error: {}", e),
-//! }
+//! let input = "TY  - JOUR\nAU  - Smith, John\nER  -\n";
+//! let err = RisParser::new().parse(input).unwrap_err();
+//!
+//! assert_eq!(err.line, Some(1));
+//! assert!(matches!(err.error, ValueError::MissingValue { key: "TI", .. }));
 //! ```
-//!
-//! # Performance Considerations
-//!
-//! - Use year-based grouping for large datasets
-//! - Enable parallel processing for better performance
-//! - Consider using CSV format for very large datasets
-//!
-//! # Thread Safety
-//!
-//! All parser implementations are thread-safe and can be shared between threads.
-//! The deduplicator supports parallel processing through the `run_in_parallel` option.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -158,7 +166,7 @@ pub mod ris;
 
 // Reexports
 #[cfg(feature = "csv")]
-pub use csv::CsvParser;
+pub use csv::{CsvParser, IctrpCsvParser};
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::parse_with_diagnostics;
 #[cfg(feature = "xml")]
@@ -179,6 +187,7 @@ pub enum CitationFormat {
     PubMed,
     EndNoteXml,
     Csv,
+    IctrpCsv,
     Unknown,
 }
 
@@ -190,6 +199,7 @@ impl CitationFormat {
             CitationFormat::PubMed => "PubMed",
             CitationFormat::EndNoteXml => "EndNote XML",
             CitationFormat::Csv => "CSV",
+            CitationFormat::IctrpCsv => "ICTRP CSV",
             CitationFormat::Unknown => "Unknown",
         }
     }
@@ -253,6 +263,8 @@ pub struct Citation {
     pub issn: Vec<String>,
     /// Digital Object Identifier
     pub doi: Option<String>,
+    /// Accession number or registry identifier
+    pub accession_number: Option<String>,
     /// PubMed ID
     pub pmid: Option<String>,
     /// PMC ID
@@ -381,6 +393,15 @@ pub fn detect_and_parse(
         return Err(CitationError::UnknownFormat);
     }
 
+    #[cfg(feature = "csv")]
+    if csv::looks_like_ictrp_csv(content) {
+        let parser = IctrpCsvParser::new();
+        return parser
+            .parse(content)
+            .map(|citations| (citations, CitationFormat::IctrpCsv))
+            .map_err(CitationError::Parse);
+    }
+
     Err(CitationError::UnknownFormat)
 }
 
@@ -452,5 +473,22 @@ FAU - Smith, John"#;
         let content = "Some random content\nthat doesn't match\nany known format";
         let result = detect_and_parse(content);
         assert!(matches!(result, Err(CitationError::UnknownFormat)));
+    }
+
+    #[cfg(feature = "csv")]
+    #[test]
+    fn test_detect_and_parse_ictrp_csv() {
+        let content = concat!(
+            "TrialID,Public title,Scientific title,Date registration,Date registration3,",
+            "Source Register\n",
+            "NCT00000001,Public,Scientific,01/05/2026,20260501,ClinicalTrials.gov\n"
+        );
+
+        let (citations, format) = detect_and_parse(content).unwrap();
+        assert_eq!(format, CitationFormat::IctrpCsv);
+        assert_eq!(
+            citations[0].accession_number.as_deref(),
+            Some("NCT00000001")
+        );
     }
 }

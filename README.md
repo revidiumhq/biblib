@@ -4,194 +4,270 @@
 [![Documentation](https://docs.rs/biblib/badge.svg)](https://docs.rs/biblib)
 [![License](https://img.shields.io/crates/l/biblib.svg)](LICENSE-MIT)
 
-A Rust library for parsing and deduplicating academic citations.
+`biblib` is a Rust library for parsing citation exports into a shared data model and deduplicating the resulting records.
+
+It is built for import pipelines, evidence synthesis tooling, registry ingestion, and any workflow that needs to turn citation files from multiple sources into one normalized `Citation` shape.
+
+## What It Supports
+
+`biblib` currently ships parsers for:
+
+| Source format | Feature | Parser |
+| --- | --- | --- |
+| RIS | `ris` | `RisParser` |
+| PubMed / MEDLINE (`.nbib`) | `pubmed` | `PubMedParser` |
+| EndNote XML | `xml` | `EndNoteXmlParser` |
+| Generic CSV / delimited data | `csv` | `csv::CsvParser` |
+| ICTRP registry CSV exports | `csv` | `IctrpCsvParser` |
+
+All parser outputs converge on the same `Citation` struct, including normalized fields such as `title`, `authors`, `date`, `doi`, `accession_number`, `pmid`, `pmc_id`, `urls`, and `extra_fields`.
 
 ## Installation
 
 ```toml
 [dependencies]
-biblib = "0.4"
+biblib = "0.5"
 ```
 
-For minimal builds:
+For a smaller build:
 
 ```toml
 [dependencies]
-biblib = { version = "0.4", default-features = false, features = ["ris", "regex"] }
+biblib = { version = "0.5", default-features = false, features = ["ris"] }
 ```
-
-## Supported Formats
-
-| Format      | Feature  | Description                         |
-| ----------- | -------- | ----------------------------------- |
-| RIS         | `ris`    | Research Information Systems format |
-| PubMed      | `pubmed` | MEDLINE/PubMed `.nbib` files        |
-| EndNote XML | `xml`    | EndNote XML export format           |
-| CSV         | `csv`    | Configurable delimited files        |
-
-All format features are enabled by default.
 
 ## Quick Start
 
-### Parsing Citations
+### Parse RIS
 
 ```rust
 use biblib::{CitationParser, RisParser};
 
-let ris_content = r#"TY  - JOUR
+let input = r#"TY  - JOUR
 TI  - Machine Learning in Healthcare
 AU  - Smith, John
 AU  - Doe, Jane
 PY  - 2023
+DO  - 10.1000/example
 ER  -"#;
 
-let parser = RisParser::new();
-let citations = parser.parse(ris_content).unwrap();
+let citations = RisParser::new().parse(input).unwrap();
 
-println!("Title: {}", citations[0].title);
-println!("Authors: {:?}", citations[0].authors);
+assert_eq!(citations.len(), 1);
+assert_eq!(citations[0].title, "Machine Learning in Healthcare");
+assert_eq!(citations[0].doi.as_deref(), Some("10.1000/example"));
 ```
 
-### Auto-Detecting Format
+### Parse PubMed / MEDLINE
+
+```rust
+use biblib::{CitationParser, PubMedParser};
+
+let input = r#"PMID- 12345678
+TI  - Immunotherapy in Oncology
+FAU - Smith, John
+JT  - Journal of Clinical Research
+DP  - 2024 Jun 15
+AB  - Example abstract."#;
+
+let citations = PubMedParser::new().parse(input).unwrap();
+
+assert_eq!(citations.len(), 1);
+assert_eq!(citations[0].pmid.as_deref(), Some("12345678"));
+assert_eq!(citations[0].title, "Immunotherapy in Oncology");
+assert_eq!(citations[0].journal.as_deref(), Some("Journal of Clinical Research"));
+```
+
+### Auto-detect Supported Formats
+
+`detect_and_parse()` currently auto-detects RIS, PubMed, EndNote XML, and ICTRP CSV. Generic CSV should still be parsed explicitly with `CsvParser`.
 
 ```rust
 use biblib::detect_and_parse;
 
-let content = "TY  - JOUR\nTI  - Example\nER  -";
-let (citations, format) = detect_and_parse(content).unwrap();
+let input = "TY  - JOUR\nTI  - Example\nER  -";
+let (citations, format) = detect_and_parse(input).unwrap();
 
-println!("Detected format: {}", format); // "RIS"
+assert_eq!(format.as_str(), "RIS");
+assert_eq!(citations[0].title, "Example");
 ```
 
-### Deduplicating Citations
+### Parse ICTRP CSV
 
 ```rust
-use biblib::dedupe::{Deduplicator, DeduplicatorConfig};
+use biblib::{CitationParser, IctrpCsvParser};
 
-let config = DeduplicatorConfig {
-    group_by_year: true,      // Group by year for performance
-    run_in_parallel: true,    // Use parallel processing
-    source_preferences: vec!["PubMed".to_string()], // Prefer PubMed records
-};
+let input = concat!(
+    "TrialID,Public title,Scientific title,Date registration,Date registration3,Study type,Source Register\n",
+    "NCT00000001,Public title,Scientific title,01/05/2026,20260501,Interventional,ClinicalTrials.gov\n"
+);
 
-let deduplicator = Deduplicator::new().with_config(config);
-let groups = deduplicator.find_duplicates(&citations).unwrap();
+let citations = IctrpCsvParser::new().parse(input).unwrap();
+let citation = &citations[0];
 
-for group in groups {
-    if !group.duplicates.is_empty() {
-        println!("Kept: {}", group.unique.title);
-        println!("Duplicates: {}", group.duplicates.len());
-    }
-}
+assert_eq!(citation.accession_number.as_deref(), Some("NCT00000001"));
+assert_eq!(citation.title, "Scientific title");
+assert_eq!(citation.citation_type, vec!["Clinical Trial", "Interventional"]);
 ```
 
-### CSV with Custom Headers
+### Parse Generic CSV with Custom Headers
 
 ```rust
-use biblib::csv::{CsvParser, CsvConfig};
+use biblib::csv::{CsvConfig, CsvParser};
 use biblib::CitationParser;
 
 let mut config = CsvConfig::new();
 config
     .set_delimiter(b';')
     .set_header_mapping("title", vec!["Article Name".to_string()])
-    .set_header_mapping("authors", vec!["Writers".to_string()]);
+    .set_header_mapping("authors", vec!["Writers".to_string()])
+    .set_header_mapping("year", vec!["Published".to_string()]);
 
-let parser = CsvParser::with_config(config);
-let citations = parser.parse("Article Name;Writers\nMy Paper;Smith J").unwrap();
+let input = "Article Name;Writers;Published\nExample Paper;Smith, John;2023";
+let citations = CsvParser::with_config(config).parse(input).unwrap();
+
+assert_eq!(citations[0].title, "Example Paper");
+assert_eq!(citations[0].date.as_ref().unwrap().year, 2023);
 ```
 
-## Citation Fields
+### Deduplicate Parsed Records
 
-Each parsed citation contains:
+```rust
+use biblib::dedupe::{Deduplicator, DeduplicatorConfig};
+use biblib::{Citation, Date};
 
-| Field           | Type             | Description                                 |
-| --------------- | ---------------- | ------------------------------------------- |
-| `title`         | `String`         | Work title                                  |
-| `authors`       | `Vec<Author>`    | Authors with name, given name, affiliations |
-| `journal`       | `Option<String>` | Full journal name                           |
-| `journal_abbr`  | `Option<String>` | Journal abbreviation                        |
-| `date`          | `Option<Date>`   | Year, month, day                            |
-| `volume`        | `Option<String>` | Volume number                               |
-| `issue`         | `Option<String>` | Issue number                                |
-| `pages`         | `Option<String>` | Page range                                  |
-| `doi`           | `Option<String>` | Digital Object Identifier                   |
-| `pmid`          | `Option<String>` | PubMed ID                                   |
-| `pmc_id`        | `Option<String>` | PubMed Central ID                           |
-| `issn`          | `Vec<String>`    | ISSNs                                       |
-| `abstract_text` | `Option<String>` | Abstract                                    |
-| `keywords`      | `Vec<String>`    | Keywords                                    |
-| `urls`          | `Vec<String>`    | Related URLs                                |
-| `mesh_terms`    | `Vec<String>`    | MeSH terms (PubMed)                         |
-| `extra_fields`  | `HashMap`        | Additional format-specific fields           |
+let citations = vec![
+    Citation {
+        title: "Example Title".to_string(),
+        doi: Some("10.1000/example".to_string()),
+        date: Some(Date { year: 2023, month: None, day: None }),
+        journal: Some("Example Journal".to_string()),
+        ..Default::default()
+    },
+    Citation {
+        title: "Example Title".to_string(),
+        doi: Some("10.1000/example".to_string()),
+        date: Some(Date { year: 2023, month: None, day: None }),
+        journal: Some("Example Journal".to_string()),
+        ..Default::default()
+    },
+];
 
-## Features
+let config = DeduplicatorConfig {
+    group_by_year: true,
+    run_in_parallel: true,
+    source_preferences: vec!["PubMed".to_string()],
+};
 
-| Feature       | Dependencies      | Description                                       |
-| ------------- | ----------------- | ------------------------------------------------- |
-| `ris`         | -                 | RIS format parser                                 |
-| `pubmed`      | -                 | PubMed/MEDLINE parser                             |
-| `xml`         | `quick-xml`       | EndNote XML parser                                |
-| `csv`         | `csv`             | CSV parser                                        |
-| `dedupe`      | `rayon`, `strsim` | Deduplication engine                              |
-| `regex`       | `regex`           | Full regex support                                |
-| `lite`        | `regex-lite`      | Lightweight regex (smaller binary)                |
-| `diagnostics` | `ariadne`         | Pretty, coloured error output with source context |
+let groups = Deduplicator::new()
+    .with_config(config)
+    .find_duplicates(&citations)
+    .unwrap();
 
-Default: all features enabled except `lite` and `diagnostics`.
+let duplicate_group = groups
+    .iter()
+    .find(|group| group.unique.doi.as_deref() == Some("10.1000/example"))
+    .unwrap();
 
-> **Note:** At least one of `regex` or `lite` must always be enabled — the crate will not compile without one of them. They are mutually exclusive; do not enable both.
+assert_eq!(duplicate_group.duplicates.len(), 1);
+```
 
-## Error Handling
+## Data Model
 
-All parse errors carry a 1-based line number and, where available, a byte-offset span pointing to the problematic citation record:
+The core output type is `Citation`.
+
+Important fields include:
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `citation_type` | `Vec<String>` | Source and work-type labels |
+| `title` | `String` | Main normalized title |
+| `authors` | `Vec<Author>` | Parsed people with name parts and affiliations |
+| `journal` | `Option<String>` | Full journal or source title |
+| `journal_abbr` | `Option<String>` | Journal abbreviation |
+| `date` | `Option<Date>` | Year with optional month/day |
+| `volume` | `Option<String>` | Volume string |
+| `issue` | `Option<String>` | Issue or number string |
+| `pages` | `Option<String>` | Normalized page range |
+| `issn` | `Vec<String>` | One or more ISSNs/serial identifiers |
+| `doi` | `Option<String>` | Normalized DOI |
+| `accession_number` | `Option<String>` | Registry or source accession identifier |
+| `pmid` | `Option<String>` | PubMed identifier |
+| `pmc_id` | `Option<String>` | PubMed Central identifier |
+| `abstract_text` | `Option<String>` | Abstract text |
+| `keywords` | `Vec<String>` | Parsed keywords |
+| `urls` | `Vec<String>` | Collected links |
+| `language` | `Option<String>` | Language code or label |
+| `mesh_terms` | `Vec<String>` | PubMed MeSH terms |
+| `publisher` | `Option<String>` | Publisher or sponsor |
+| `extra_fields` | `HashMap<String, Vec<String>>` | Source-specific leftovers preserved raw |
+
+This makes it easy to normalize aggressively where the library has clear semantics, while still keeping source-specific information available.
+
+## Feature Flags
+
+| Feature | Enables |
+| --- | --- |
+| `ris` | RIS parser |
+| `pubmed` | PubMed / MEDLINE parser |
+| `xml` | EndNote XML parser |
+| `csv` | Generic CSV parser and ICTRP CSV parser |
+| `dedupe` | Deduplication engine |
+| `diagnostics` | Pretty parse diagnostics via `ariadne` |
+
+Default features: `csv`, `pubmed`, `xml`, `ris`, `dedupe`
+
+Since `v0.5`, `biblib` no longer uses the `regex` crate or exposes regex-backend feature flags. It uses `regex-lite` internally, and regex backend selection is no longer part of the public API surface.
+
+## Errors and Diagnostics
+
+All parsers return `ParseError` on malformed input. Errors carry:
+
+- The source format
+- A 1-based line number when available
+- A byte span when available
+- A structured `ValueError`
+
+Example:
 
 ```rust
 use biblib::{CitationParser, RisParser, ValueError};
 
+let input = "TY  - JOUR\nAU  - Smith, John\nER  -\n";
+
 match RisParser::new().parse(input) {
-    Ok(citations) => println!("Parsed {} citations", citations.len()),
-    Err(e) => {
-        eprintln!("Parse error: {}", e); // includes "at line N" when known
-        if let ValueError::MissingValue { key, .. } = &e.error {
-            eprintln!("Missing required field: {}", key);
-        }
+    Ok(_) => unreachable!("expected a parse error"),
+    Err(err) => {
+        assert_eq!(err.line, Some(1));
+        assert!(matches!(err.error, ValueError::MissingValue { key: "TI", .. }));
     }
 }
 ```
 
-### Pretty diagnostics (optional)
-
-Enable the `diagnostics` feature for human-friendly, coloured output powered by [ariadne](https://crates.io/crates/ariadne):
+For human-friendly diagnostics, enable `diagnostics`:
 
 ```toml
 [dependencies]
-biblib = { version = "0.4", features = ["diagnostics"] }
+biblib = { version = "0.5", features = ["diagnostics"] }
 ```
+
+Then use `parse_with_diagnostics()`:
 
 ```rust
 use biblib::{RisParser, parse_with_diagnostics};
 
-let source = std::fs::read_to_string("citations.ris")?;
-match parse_with_diagnostics(&RisParser::new(), &source, "citations.ris") {
-    Ok(citations) => println!("Parsed {} citations", citations.len()),
-    Err(diagnostic) => eprintln!("{}", diagnostic),
-    // Error: Error in RIS format at line 5: Missing value for TI
-    //    ╭─[citations.ris:5:1]
-    //  5 │ TY  - JOUR
-    //    │ ──────────── Missing value for TI
-    //    ╰───
-}
+let input = "TY  - JOUR\nAU  - Smith, John\nER  -\n";
+let rendered = parse_with_diagnostics(&RisParser::new(), input, "refs.ris");
+
+assert!(rendered.is_err());
 ```
 
-You can also call `error.to_diagnostic(filename, source)` directly on any `ParseError`.
+## Guides
 
-## Documentation
-
-- **[Parsing Guide](PARSING_GUIDE.md)** — Format-specific tag mappings, date formats, and author handling
-- **[Deduplication Guide](DEDUPLICATION_GUIDE.md)** — Matching algorithm, similarity thresholds, and configuration
-- **[API Docs](https://docs.rs/biblib)** — Complete API reference
+- [PARSING_GUIDE.md](PARSING_GUIDE.md) - format-specific mapping and normalization rules
+- [DEDUPLICATION_GUIDE.md](DEDUPLICATION_GUIDE.md) - duplicate matching behavior and configuration
+- [docs.rs/biblib](https://docs.rs/biblib) - API reference
 
 ## License
 
-Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) at your option.
+Licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.

@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-06-24
+
+### Added
+
+- **`accession_number` on `Citation`**: Added a new normalized identifier field for registry and source accession values.
+- **ICTRP CSV parser**: Added `IctrpCsvParser` for WHO ICTRP CSV exports from the [WHO International Clinical Trials Registry Platform (ICTRP)](https://www.who.int/tools/clinical-trials-registry-platform), plus narrow ICTRP auto-detection in `detect_and_parse()`.
+- **RIS accession-number mapping**: RIS `AN` now maps to `Citation.accession_number`.
+- **EndNote XML accession-number mapping**: EndNote XML `<accession-num>` now maps to `Citation.accession_number`.
+
+### Changed
+
+- **Regex backend simplified**: `biblib` no longer exposes public `regex` or `lite` feature flags. As of `v0.5`, the crate uses `regex-lite` internally.
+- **Versioning impact**: This release is breaking for downstream code that constructs `Citation` with struct literals or exhaustively matches `CitationFormat`.
+- **`CitationFormat` expanded**: Added `CitationFormat::IctrpCsv`.
+- **README and crate-level docs rewritten**: Documentation was updated to match the normalized model, parser surface, and current feature flags.
+
+### Migration Guide
+
+#### `Citation` struct literal construction
+
+If you construct `Citation` values directly with struct literals, add the new `accession_number` field:
+
+```rust
+// Before (0.4.x):
+Citation {
+    title: "Example".into(),
+    doi: Some("10.1000/example".into()),
+    ..Default::default()
+}
+
+// After (0.5.x):
+Citation {
+    title: "Example".into(),
+    doi: Some("10.1000/example".into()),
+    accession_number: None,
+    ..Default::default()
+}
+```
+
+#### `CitationFormat` exhaustive matches
+
+If you match every `CitationFormat` variant, add a branch for `CitationFormat::IctrpCsv`.
+
 ## [0.4.4] - 2026-06-23
 
 ### Fixed
