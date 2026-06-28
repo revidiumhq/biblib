@@ -20,6 +20,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ICTRP CSV parsing tolerance**: `IctrpCsvParser` now tolerates inconsistent row lengths in malformed real-world ICTRP exports instead of failing the entire parse.
 - **Documentation updated**: README, crate docs, and `PARSING_GUIDE.md` now document both ENW and `.bib` parsing behavior.
 
+### Migration Guide
+
+#### `CitationFormat` exhaustive matches
+
+If you match every `CitationFormat` variant, add branches for `CitationFormat::Bib` and `CitationFormat::Enw`.
+
+```rust
+// Before (0.5.x):
+match format {
+    CitationFormat::Ris => { /* ... */ }
+    CitationFormat::PubMed => { /* ... */ }
+    CitationFormat::EndNoteXml => { /* ... */ }
+    CitationFormat::Csv => { /* ... */ }
+    CitationFormat::IctrpCsv => { /* ... */ }
+    CitationFormat::Unknown => { /* ... */ }
+}
+
+// After (0.6.x):
+match format {
+    CitationFormat::Ris => { /* ... */ }
+    CitationFormat::PubMed => { /* ... */ }
+    CitationFormat::EndNoteXml => { /* ... */ }
+    CitationFormat::Enw => { /* ... */ }
+    CitationFormat::Bib => { /* ... */ }
+    CitationFormat::Csv => { /* ... */ }
+    CitationFormat::IctrpCsv => { /* ... */ }
+    CitationFormat::Unknown => { /* ... */ }
+}
+```
+
+#### `detect_and_parse()` behavior
+
+If you relied on `.bib` or `.enw` input being rejected as `UnknownFormat`, update that logic to handle successful parsing:
+
+```rust
+// Before (0.5.x):
+assert!(matches!(detect_and_parse(input), Err(CitationError::UnknownFormat)));
+
+// After (0.6.x):
+let (citations, format) = detect_and_parse(input)?;
+assert!(matches!(format, CitationFormat::Bib | CitationFormat::Enw));
+```
+
+#### Default feature set
+
+If you do not want the new parsers enabled by default, disable default features and opt in explicitly:
+
+```toml
+[dependencies]
+biblib = { version = "0.6", default-features = false, features = ["ris", "pubmed"] }
+```
+
 ## [0.5.0] - 2026-06-24
 
 ### Added
@@ -62,6 +114,27 @@ Citation {
 #### `CitationFormat` exhaustive matches
 
 If you match every `CitationFormat` variant, add a branch for `CitationFormat::IctrpCsv`.
+
+```rust
+// Before (0.4.x):
+match format {
+    CitationFormat::Ris => { /* ... */ }
+    CitationFormat::PubMed => { /* ... */ }
+    CitationFormat::EndNoteXml => { /* ... */ }
+    CitationFormat::Csv => { /* ... */ }
+    CitationFormat::Unknown => { /* ... */ }
+}
+
+// After (0.5.x):
+match format {
+    CitationFormat::Ris => { /* ... */ }
+    CitationFormat::PubMed => { /* ... */ }
+    CitationFormat::EndNoteXml => { /* ... */ }
+    CitationFormat::Csv => { /* ... */ }
+    CitationFormat::IctrpCsv => { /* ... */ }
+    CitationFormat::Unknown => { /* ... */ }
+}
+```
 
 ## [0.4.4] - 2026-06-23
 
