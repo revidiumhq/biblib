@@ -290,6 +290,87 @@ pub fn parse_endnote_date(year: Option<i32>, month: Option<u8>, day: Option<u8>)
     Some(Date { year, month, day })
 }
 
+/// Parses EndNote Tagged / ENW dates from several common export shapes.
+///
+/// Supported forms include:
+/// - `YYYY`
+/// - `YYYY/MM/DD`
+/// - `YYYY-MM-DD`
+/// - `YYYY Mon DD`
+/// - `Mon DD, YYYY`
+pub fn parse_enw_date(date_str: &str) -> Option<Date> {
+    let date_str = date_str.trim();
+    if date_str.is_empty() {
+        return None;
+    }
+
+    parse_ris_date(date_str)
+        .or_else(|| parse_iso_like_date(date_str))
+        .or_else(|| parse_pubmed_date(date_str))
+        .or_else(|| parse_month_day_year_date(date_str))
+        .or_else(|| parse_year_only(date_str))
+}
+
+/// Parses BibTeX / BibLaTeX date fields.
+///
+/// Supported forms include:
+/// - `YYYY`
+/// - `YYYY-MM`
+/// - `YYYY/MM`
+/// - `YYYY-MM-DD`
+/// - `YYYY/MM/DD`
+pub fn parse_bib_date(date_str: &str) -> Option<Date> {
+    let trimmed = date_str.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let delimiter = if trimmed.contains('-') {
+        Some('-')
+    } else if trimmed.contains('/') {
+        Some('/')
+    } else {
+        None
+    };
+
+    let Some(delimiter) = delimiter else {
+        return parse_year_only(trimmed);
+    };
+
+    let parts: Vec<&str> = trimmed.split(delimiter).collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let year = parts.first()?.trim().parse::<i32>().ok()?;
+    let month = parse_bib_month_token(parts.get(1)?.trim())?;
+
+    let day = if let Some(day_str) = parts.get(2) {
+        let parsed = day_str.trim().parse::<u8>().ok()?;
+        (1..=31).contains(&parsed).then_some(parsed)
+    } else {
+        None
+    };
+
+    Some(Date {
+        year,
+        month: Some(month),
+        day,
+    })
+}
+
+/// Parses a year and month pair from BibTeX / BibLaTeX fields.
+pub fn parse_bib_year_month(year_str: &str, month_str: &str) -> Option<Date> {
+    let year = parse_year_only(year_str)?.year;
+    let month = parse_bib_month_token(month_str.trim())?;
+
+    Some(Date {
+        year,
+        month: Some(month),
+        day: None,
+    })
+}
+
 /// Parses a simple year string into a Date
 ///
 /// # Arguments
@@ -331,6 +412,56 @@ fn parse_month_name(month_str: &str) -> Option<u8> {
         "dec" | "december" => Some(12),
         _ => None,
     }
+}
+
+fn parse_bib_month_token(month_str: &str) -> Option<u8> {
+    if let Ok(month) = month_str.parse::<u8>() {
+        return (1..=12).contains(&month).then_some(month);
+    }
+
+    parse_month_name(month_str)
+}
+
+fn parse_iso_like_date(date_str: &str) -> Option<Date> {
+    let normalized = date_str.trim();
+    let delimiter = if normalized.contains('-') {
+        '-'
+    } else {
+        return None;
+    };
+
+    let parts: Vec<&str> = normalized.split(delimiter).collect();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let year = parts.first()?.parse::<i32>().ok()?;
+    let month = parts.get(1)?.parse::<u8>().ok().filter(|m| (1..=12).contains(m))?;
+    let day = parts.get(2)?.parse::<u8>().ok().filter(|d| (1..=31).contains(d))?;
+
+    Some(Date {
+        year,
+        month: Some(month),
+        day: Some(day),
+    })
+}
+
+fn parse_month_day_year_date(date_str: &str) -> Option<Date> {
+    let normalized = date_str.replace(',', " ");
+    let parts: Vec<&str> = normalized.split_whitespace().collect();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let month = parse_month_name(parts[0])?;
+    let day = parts.get(1)?.parse::<u8>().ok().filter(|d| (1..=31).contains(d))?;
+    let year = parts.get(2)?.parse::<i32>().ok()?;
+
+    Some(Date {
+        year,
+        month: Some(month),
+        day: Some(day),
+    })
 }
 
 /// get the newline delimiter (e.g. CRLF for Windows, LF for Linux). of multi-line text.
@@ -590,6 +721,93 @@ mod tests {
         for (year, month, day, expected) in test_cases {
             assert_eq!(parse_endnote_date(year, month, day), expected);
         }
+    }
+
+    #[test]
+    fn test_parse_enw_date() {
+        assert_eq!(
+            parse_enw_date("2023"),
+            Some(Date {
+                year: 2023,
+                month: None,
+                day: None,
+            })
+        );
+        assert_eq!(
+            parse_enw_date("2023-05-30"),
+            Some(Date {
+                year: 2023,
+                month: Some(5),
+                day: Some(30),
+            })
+        );
+        assert_eq!(
+            parse_enw_date("May 30, 2023"),
+            Some(Date {
+                year: 2023,
+                month: Some(5),
+                day: Some(30),
+            })
+        );
+        assert_eq!(
+            parse_enw_date("2023 May 30"),
+            Some(Date {
+                year: 2023,
+                month: Some(5),
+                day: Some(30),
+            })
+        );
+        assert_eq!(parse_enw_date("not-a-date"), None);
+    }
+
+    #[test]
+    fn test_parse_bib_date() {
+        assert_eq!(
+            parse_bib_date("2024-05-02"),
+            Some(Date {
+                year: 2024,
+                month: Some(5),
+                day: Some(2),
+            })
+        );
+        assert_eq!(
+            parse_bib_date("2024/05"),
+            Some(Date {
+                year: 2024,
+                month: Some(5),
+                day: None,
+            })
+        );
+        assert_eq!(
+            parse_bib_date("2024"),
+            Some(Date {
+                year: 2024,
+                month: None,
+                day: None,
+            })
+        );
+        assert_eq!(parse_bib_date("bad-date"), None);
+    }
+
+    #[test]
+    fn test_parse_bib_year_month() {
+        assert_eq!(
+            parse_bib_year_month("2024", "jan"),
+            Some(Date {
+                year: 2024,
+                month: Some(1),
+                day: None,
+            })
+        );
+        assert_eq!(
+            parse_bib_year_month("2024", "11"),
+            Some(Date {
+                year: 2024,
+                month: Some(11),
+                day: None,
+            })
+        );
+        assert_eq!(parse_bib_year_month("2024", "bogus"), None);
     }
 
     #[test]
