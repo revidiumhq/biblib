@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-28
+
+### Added
+
+- **BibTeX / BibLaTeX (`.bib`) parser**: Added first-class `BibParser` support for `.bib` files with native parsing of entries, `@string` macros, concatenation, `xdata`, and `crossref` inheritance.
+- **EndNote Tagged (`.enw`) parser**: Added first-class `EnwParser` support for EndNote Tagged / EndNote Web exports, including ENW auto-detection in `detect_and_parse()`.
+
+### Changed
+
+- **`CitationFormat` expanded**: Added `CitationFormat::Bib` and `CitationFormat::Enw`.
+- **Feature flags expanded**: Added the `bib` and `enw` features and enabled them by default.
+- **Auto-detection expanded**: `detect_and_parse()` now recognizes BibTeX / BibLaTeX input.
+- **ICTRP CSV parsing tolerance**: `IctrpCsvParser` now tolerates inconsistent row lengths in malformed real-world ICTRP exports instead of failing the entire parse.
+- **Documentation updated**: README, crate docs, and `PARSING_GUIDE.md` now document both ENW and `.bib` parsing behavior.
+
 ## [0.5.0] - 2026-06-24
 
 ### Added

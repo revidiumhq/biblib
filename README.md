@@ -17,6 +17,8 @@ It is built for import pipelines, evidence synthesis tooling, registry ingestion
 | RIS | `ris` | `RisParser` |
 | PubMed / MEDLINE (`.nbib`) | `pubmed` | `PubMedParser` |
 | EndNote XML | `xml` | `EndNoteXmlParser` |
+| EndNote Tagged / EndNote Web (`.enw`) | `enw` | `EnwParser` |
+| BibTeX / BibLaTeX (`.bib`) | `bib` | `BibParser` |
 | Generic CSV / delimited data | `csv` | `csv::CsvParser` |
 | ICTRP registry CSV exports | `csv` | `IctrpCsvParser` |
 
@@ -26,14 +28,14 @@ All parser outputs converge on the same `Citation` struct, including normalized 
 
 ```toml
 [dependencies]
-biblib = "0.5"
+biblib = "0.6"
 ```
 
 For a smaller build:
 
 ```toml
 [dependencies]
-biblib = { version = "0.5", default-features = false, features = ["ris"] }
+biblib = { version = "0.6", default-features = false, features = ["ris"] }
 ```
 
 ## Quick Start
@@ -78,9 +80,49 @@ assert_eq!(citations[0].title, "Immunotherapy in Oncology");
 assert_eq!(citations[0].journal.as_deref(), Some("Journal of Clinical Research"));
 ```
 
+### Parse EndNote Tagged (`.enw`)
+
+```rust
+use biblib::{CitationParser, EnwParser};
+
+let input = r#"%0 Journal Article
+%T Machine Learning in Healthcare
+%A Smith, John
+%D 2023
+%R 10.1000/example
+"#;
+
+let citations = EnwParser::new().parse(input).unwrap();
+
+assert_eq!(citations.len(), 1);
+assert_eq!(citations[0].citation_type, vec!["Journal Article"]);
+assert_eq!(citations[0].title, "Machine Learning in Healthcare");
+assert_eq!(citations[0].doi.as_deref(), Some("10.1000/example"));
+```
+
+### Parse BibTeX / BibLaTeX (`.bib`)
+
+```rust
+use biblib::{BibParser, CitationParser};
+
+let input = r#"@article{smith2024,
+  title = {Machine Learning in Healthcare},
+  author = {Smith, John and Doe, Jane},
+  date = {2024-05-02},
+  doi = {10.1000/example}
+}"#;
+
+let citations = BibParser::new().parse(input).unwrap();
+
+assert_eq!(citations.len(), 1);
+assert_eq!(citations[0].citation_type, vec!["article"]);
+assert_eq!(citations[0].title, "Machine Learning in Healthcare");
+assert_eq!(citations[0].doi.as_deref(), Some("10.1000/example"));
+```
+
 ### Auto-detect Supported Formats
 
-`detect_and_parse()` currently auto-detects RIS, PubMed, EndNote XML, and ICTRP CSV. Generic CSV should still be parsed explicitly with `CsvParser`.
+`detect_and_parse()` currently auto-detects RIS, PubMed, EndNote XML, EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), and ICTRP CSV. Generic CSV should still be parsed explicitly with `CsvParser`.
 
 ```rust
 use biblib::detect_and_parse;
@@ -211,11 +253,13 @@ This makes it easy to normalize aggressively where the library has clear semanti
 | `ris` | RIS parser |
 | `pubmed` | PubMed / MEDLINE parser |
 | `xml` | EndNote XML parser |
+| `enw` | EndNote Tagged (`.enw`) parser |
+| `bib` | BibTeX / BibLaTeX (`.bib`) parser |
 | `csv` | Generic CSV parser and ICTRP CSV parser |
 | `dedupe` | Deduplication engine |
 | `diagnostics` | Pretty parse diagnostics via `ariadne` |
 
-Default features: `csv`, `pubmed`, `xml`, `ris`, `dedupe`
+Default features: `csv`, `pubmed`, `xml`, `ris`, `enw`, `bib`, `dedupe`
 
 Since `v0.5`, `biblib` no longer uses the `regex` crate or exposes regex-backend feature flags. It uses `regex-lite` internally, and regex backend selection is no longer part of the public API surface.
 
@@ -248,7 +292,7 @@ For human-friendly diagnostics, enable `diagnostics`:
 
 ```toml
 [dependencies]
-biblib = { version = "0.5", features = ["diagnostics"] }
+biblib = { version = "0.6", features = ["diagnostics"] }
 ```
 
 Then use `parse_with_diagnostics()`:

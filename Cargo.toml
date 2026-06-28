@@ -1,6 +1,6 @@
 [package]
 name = "biblib"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 description = "Parse, manage, and deduplicate academic citations"
 authors = ["Ali Azlan <aliazlanofficial@gmail.com>"]
@@ -12,11 +12,13 @@ keywords = ["citations", "deduplication", "nbib", "doi", "bibliography"]
 categories = ["science", "text-processing"]
 
 [features]
-default = ["csv", "pubmed", "xml", "ris", "dedupe"]
+default = ["csv", "pubmed", "xml", "ris", "enw", "bib", "dedupe"]
 csv = ["dep:csv"]
 pubmed = []
 xml = ["dep:quick-xml"]
 ris = []
+enw = []
+bib = []
 dedupe = ["dep:rayon", "dep:strsim"]
 diagnostics = ["dep:ariadne"]
 

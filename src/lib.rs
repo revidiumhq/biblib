@@ -10,8 +10,8 @@
 //!
 //! # What You Get
 //!
-//! - Dedicated parsers for RIS, PubMed / MEDLINE, EndNote XML, generic CSV,
-//!   and ICTRP CSV exports
+//! - Dedicated parsers for RIS, PubMed / MEDLINE, EndNote XML, EndNote Tagged
+//!   (`.enw`), BibTeX / BibLaTeX (`.bib`), generic CSV, and ICTRP CSV exports
 //! - A shared [`Citation`] output type with normalized identifiers such as DOI,
 //!   PMID, PMCID, and `accession_number`
 //! - Preservation of source-specific leftovers through `extra_fields`
@@ -39,21 +39,26 @@
 //! # Supported Parsers
 //!
 //! ```rust
-//! use biblib::{CitationParser, EndNoteXmlParser, IctrpCsvParser, PubMedParser, RisParser};
+//! use biblib::{
+//!     BibParser, CitationParser, EndNoteXmlParser, EnwParser, IctrpCsvParser, PubMedParser,
+//!     RisParser,
+//! };
 //! use biblib::csv::CsvParser;
 //!
 //! let _ris = RisParser::new();
 //! let _pubmed = PubMedParser::new();
 //! let _endnote = EndNoteXmlParser::new();
+//! let _enw = EnwParser::new();
+//! let _bib = BibParser::new();
 //! let _csv = CsvParser::new();
 //! let _ictrp = IctrpCsvParser::new();
 //! ```
 //!
 //! # Auto-Detection
 //!
-//! [`detect_and_parse`] currently auto-detects RIS, PubMed, EndNote XML, and
-//! ICTRP CSV. Generic CSV remains explicit because header mapping is
-//! application-specific.
+//! [`detect_and_parse`] currently auto-detects RIS, PubMed, EndNote XML,
+//! EndNote Tagged, BibTeX / BibLaTeX, and ICTRP CSV. Generic CSV remains
+//! explicit because header mapping is application-specific.
 //!
 //! ```rust
 //! use biblib::detect_and_parse;
@@ -71,7 +76,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! biblib = { version = "0.5", default-features = false, features = ["ris", "csv"] }
+//! biblib = { version = "0.6", default-features = false, features = ["ris", "csv"] }
 //! ```
 //!
 //! Available public features:
@@ -80,6 +85,8 @@
 //! - `pubmed`
 //! - `xml`
 //! - `csv`
+//! - `enw`
+//! - `bib`
 //! - `dedupe`
 //! - `diagnostics`
 //!
@@ -150,12 +157,16 @@ use std::collections::HashMap;
 #[cfg(feature = "csv")]
 extern crate csv as csv_crate;
 
+#[cfg(feature = "bib")]
+pub mod bib;
 #[cfg(feature = "csv")]
 pub mod csv;
 #[cfg(feature = "dedupe")]
 pub mod dedupe;
 #[cfg(feature = "diagnostics")]
 pub mod diagnostics;
+#[cfg(feature = "enw")]
+pub mod enw;
 #[cfg(feature = "xml")]
 pub mod endnote_xml;
 pub mod error;
@@ -167,8 +178,12 @@ pub mod ris;
 // Reexports
 #[cfg(feature = "csv")]
 pub use csv::{CsvParser, IctrpCsvParser};
+#[cfg(feature = "bib")]
+pub use bib::BibParser;
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::parse_with_diagnostics;
+#[cfg(feature = "enw")]
+pub use enw::EnwParser;
 #[cfg(feature = "xml")]
 pub use endnote_xml::EndNoteXmlParser;
 pub use error::{CitationError, ParseError, SourceSpan, ValueError};
@@ -186,6 +201,8 @@ pub enum CitationFormat {
     Ris,
     PubMed,
     EndNoteXml,
+    Enw,
+    Bib,
     Csv,
     IctrpCsv,
     Unknown,
@@ -198,6 +215,8 @@ impl CitationFormat {
             CitationFormat::Ris => "RIS",
             CitationFormat::PubMed => "PubMed",
             CitationFormat::EndNoteXml => "EndNote XML",
+            CitationFormat::Enw => "EndNote Tagged",
+            CitationFormat::Bib => "BibTeX / BibLaTeX",
             CitationFormat::Csv => "CSV",
             CitationFormat::IctrpCsv => "ICTRP CSV",
             CitationFormat::Unknown => "Unknown",
@@ -327,8 +346,8 @@ pub trait CitationParser {
 ///
 /// # Returns
 ///
-/// A Result containing a vector of parsed Citations and the detected format,
-/// or a CitationError if parsing fails
+/// A Result containing a vector of parsed Citations and the detected format, or
+/// a CitationError if parsing fails
 ///
 /// # Examples
 ///
@@ -391,6 +410,25 @@ pub fn detect_and_parse(
         }
         #[cfg(not(feature = "pubmed"))]
         return Err(CitationError::UnknownFormat);
+    }
+
+    // Check for EndNote Tagged / ENW format (records start with %0)
+    #[cfg(feature = "enw")]
+    if enw::looks_like_enw(content) {
+        let parser = EnwParser::new();
+        return parser
+            .parse(content)
+            .map(|citations| (citations, CitationFormat::Enw))
+            .map_err(CitationError::Parse);
+    }
+
+    #[cfg(feature = "bib")]
+    if bib::looks_like_bib(content) {
+        let parser = BibParser::new();
+        return parser
+            .parse(content)
+            .map(|citations| (citations, CitationFormat::Bib))
+            .map_err(CitationError::Parse);
     }
 
     #[cfg(feature = "csv")]
@@ -458,6 +496,31 @@ FAU - Smith, John"#;
         let (citations, format) = detect_and_parse(content).unwrap();
         assert_eq!(format, CitationFormat::EndNoteXml);
         assert_eq!(citations[0].title, "Test Title");
+    }
+
+    #[cfg(feature = "enw")]
+    #[test]
+    fn test_detect_and_parse_enw() {
+        let content = "%0 Journal Article\n%T Test Title\n%A Smith, John\n";
+
+        let (citations, format) = detect_and_parse(content).unwrap();
+        assert_eq!(format, CitationFormat::Enw);
+        assert_eq!(citations[0].title, "Test Title");
+        assert_eq!(citations[0].citation_type, vec!["Journal Article"]);
+    }
+
+    #[cfg(feature = "bib")]
+    #[test]
+    fn test_detect_and_parse_bib() {
+        let content = r#"@article{smith2024,
+  title = {Test Title},
+  author = {Smith, John}
+}"#;
+
+        let (citations, format) = detect_and_parse(content).unwrap();
+        assert_eq!(format, CitationFormat::Bib);
+        assert_eq!(citations[0].title, "Test Title");
+        assert_eq!(citations[0].citation_type, vec!["article"]);
     }
 
     #[test]

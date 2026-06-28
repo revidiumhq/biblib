@@ -7,6 +7,8 @@ This guide documents the parsing behaviors, assumptions, and data transformation
 - [RIS Format](#ris-format)
 - [PubMed/MEDLINE Format](#pubmedmedline-format)
 - [EndNote XML Format](#endnote-xml-format)
+- [EndNote Tagged (`.enw`) Format](#endnote-tagged-enw-format)
+- [BibTeX / BibLaTeX (`.bib`) Format](#bibtex--biblatex-bib-format)
 - [CSV Format](#csv-format)
 - [Common Transformations](#common-transformations)
 
@@ -187,6 +189,116 @@ Author elements contain full names in various formats:
 
 - `Smith, John A.` → Family: "Smith", Given: "John", Middle: "A."
 - `Anonymous Author` → Family: "Anonymous", Given: "Author"
+
+---
+
+## EndNote Tagged (`.enw`) Format
+
+EndNote Tagged format is a line-oriented export where each field starts with a percent-prefixed one-character tag:
+
+```text
+%0 Journal Article
+%T Example Title
+%A Smith, John
+%D 2024
+%R 10.1000/example
+```
+
+### Record Boundaries
+
+- `%0` starts a new record.
+- A new `%0` line or EOF closes the previous record.
+- Blank lines are ignored.
+- Non-empty non-tag lines are treated as continuations of the previous tag value.
+
+### Tag Mappings
+
+| Tag | Field | Notes |
+|-----|-------|-------|
+| `%0` | `citation_type` | Preserved exactly as written |
+| `%9` | `citation_type` | Appended exactly as written |
+| `%A`, `%E`, `%Y`, `%?`, `%H` | Authors | Flattened into `authors` in input order; lossy role-tag values like `%E`, `%Y`, `%?`, and `%H` are also preserved in `extra_fields` |
+| `%T` | Title | Primary title |
+| `%Q` | Title fallback | Used when `%T` is absent |
+| `%J`, `%B`, `%S` | Journal / source title | Priority: `%J` then `%B` then `%S` |
+| `%D` | Year | Fallback year-only date source |
+| `%8` | Date | Preferred when parseable |
+| `%V` | Volume | |
+| `%N` | Issue | |
+| `%P` | Pages | Page formatting reused from shared utilities |
+| `%I` | Publisher | |
+| `%G` | Language | |
+| `%K` | Keywords | One value per tag line |
+| `%M` | Accession number | Mapped to `accession_number` |
+| `%U`, `%>` | URLs | All collected into `urls` |
+| `%R` | DOI / electronic resource number | DOI extracted when possible, otherwise preserved in `extra_fields` |
+| `%@` | ISSN / ISBN | ISSNs are split when recognized; ISBN-only values are preserved intact |
+| `%X` | Abstract | Repeated tags are joined with blank lines |
+
+### Validation
+
+- A record is considered invalid only when it has neither a title (`%T` or `%Q`) nor any contributor tags.
+- Malformed `%` tag lines return `ParseError` with ENW line numbers and source spans.
+
+### Extra Fields
+
+Unmapped or intentionally preserved tags remain available in `extra_fields`, including:
+
+- `%E`, `%Y`, `%?`, `%H` for contributor-role fidelity
+- `%C`, `%F`, `%L`, `%Z`, `%(`, `%[`, `%6`, `%7`
+- Unused `%J`, `%B`, or `%S` container fields when a higher-priority value was selected
+- Non-DOI `%R` values
+
+---
+
+## BibTeX / BibLaTeX (`.bib`) Format
+
+BibTeX / BibLaTeX uses `@type{key, field = value, ...}` entries with quoted, braced, bare, and concatenated values.
+
+### Entry Handling
+
+- `@article`, `@book`, `@online`, and other ordinary entry types become `Citation` values.
+- `@string` definitions are parsed case-insensitively and resolved before field mapping.
+- `@xdata` entries are parsed for inheritance and do not emit standalone `Citation` values.
+- `@comment` and `@preamble` are ignored in phase 1 because `Citation` has no file-level storage for them.
+
+### Field Mapping
+
+| Bib field | Citation field | Notes |
+|-----------|----------------|-------|
+| `title` + `subtitle` | `title` | Subtitle is appended as `Title: Subtitle` |
+| `author` | `authors` | Split on top-level ` and ` |
+| `editor` | `authors` fallback | Used only when `author` is absent; raw `editor` is preserved in `extra_fields` |
+| `journaltitle` | `journal` | Preferred container title |
+| `journal` | `journal` fallback | Used when `journaltitle` is absent |
+| `booktitle` | `journal` fallback | Used when no journal fields are present |
+| `shortjournal`, `journalabbr` | `journal_abbr` | First non-empty value wins |
+| `date` | `date` | Supports `YYYY`, `YYYY-MM`, and `YYYY-MM-DD` |
+| `year` + `month` | `date` fallback | `month` accepts numeric or month-name tokens |
+| `volume` | `volume` | |
+| `number`, `issue` | `issue` | `number` takes priority |
+| `pages` | `pages` | Reuses shared page normalization |
+| `doi` | `doi` | Shared DOI normalization applies |
+| `url` | `urls` | All non-empty values are collected |
+| `issn`, `isbn` | `issn` | ISBN values are preserved in the same identifier vector |
+| `abstract` | `abstract_text` | Repeated values are joined with blank lines |
+| `keywords` | `keywords` | Split on semicolons, commas, or newlines |
+| `publisher` | `publisher` | |
+| `language`, `langid` | `language` | `language` takes priority |
+| `pmid`, `pubmed` | `pmid` | |
+| `pmcid`, `pmc` | `pmc_id` | |
+
+### Resolution Rules
+
+- String macros are resolved before entry inheritance.
+- `xdata` references are applied left-to-right, filling only fields the child does not already define.
+- `crossref` is applied after `xdata`, also filling only missing child fields.
+- Missing `xdata` / `crossref` parents, unresolved macros, and inheritance cycles are soft failures: the entry still parses and the literal unresolved field text remains in `extra_fields`.
+
+### Validation
+
+- An entry is considered valid if it has at least one strong identity signal: title, author/editor, DOI, URL, eprint, PMID/PMCID, or another accession-like identifier.
+- Unterminated values, malformed entry syntax, and identity-less entries return `ParseError` with `.bib` line numbers and byte spans.
 
 ---
 
