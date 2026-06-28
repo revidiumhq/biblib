@@ -20,6 +20,7 @@ impl IctrpCsvParser {
     fn config() -> CsvConfig {
         let mut config = CsvConfig::new();
         config
+            .set_flexible(true)
             .set_header_mapping("accession_number", vec!["TrialID".to_string()])
             .set_header_mapping("scientific_title", vec!["Scientific title".to_string()])
             .set_header_mapping("date_registration", vec!["Date registration".to_string()])
@@ -299,6 +300,20 @@ mod tests {
         );
 
         let citation = IctrpCsvParser::new().parse(input).unwrap().remove(0);
+        assert_eq!(citation.citation_type, vec!["Clinical Trial"]);
+    }
+
+    #[test]
+    fn test_parse_ictrp_tolerates_extra_fields_in_row() {
+        let input = concat!(
+            "TrialID,Public title,Scientific title,Primary sponsor,Date registration,Source Register\n",
+            "NCT00000004,Public title,Scientific title,Sponsor,01/05/2026,ClinicalTrials.gov,unexpected,overflow\n"
+        );
+
+        let citation = IctrpCsvParser::new().parse(input).unwrap().remove(0);
+        assert_eq!(citation.accession_number.as_deref(), Some("NCT00000004"));
+        assert_eq!(citation.title, "Scientific title");
+        assert_eq!(citation.publisher.as_deref(), Some("Sponsor"));
         assert_eq!(citation.citation_type, vec!["Clinical Trial"]);
     }
 }
