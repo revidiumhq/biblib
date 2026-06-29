@@ -189,7 +189,10 @@ mod tests {
         assert_eq!(child.publisher.as_deref(), Some("Shared Publisher"));
         assert_eq!(child.language.as_deref(), Some("english"));
         assert_eq!(child.journal.as_deref(), Some("Conference Proceedings"));
-        assert_eq!(child.extra_fields.get("crossref"), Some(&vec!["conf2024".to_string()]));
+        assert_eq!(
+            child.extra_fields.get("crossref"),
+            Some(&vec!["conf2024".to_string()])
+        );
     }
 
     #[test]

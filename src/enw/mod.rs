@@ -86,8 +86,19 @@ mod tests {
         assert_eq!(citation.date.as_ref().map(|d| d.year), Some(2006));
         assert_eq!(citation.issn, vec!["978-3-8309-1689-5"]);
         assert_eq!(citation.authors.len(), 2);
-        assert_eq!(citation.extra_fields.get("%E").cloned().unwrap_or_default().len(), 2);
-        assert_eq!(citation.extra_fields.get("%C"), Some(&vec!["Münster".to_string()]));
+        assert_eq!(
+            citation
+                .extra_fields
+                .get("%E")
+                .cloned()
+                .unwrap_or_default()
+                .len(),
+            2
+        );
+        assert_eq!(
+            citation.extra_fields.get("%C"),
+            Some(&vec!["Münster".to_string()])
+        );
     }
 
     #[test]
@@ -139,9 +150,18 @@ mod tests {
         let citation = &citations[0];
         assert_eq!(citation.authors.len(), 5);
         assert!(citation.extra_fields.get("%A").is_none());
-        assert_eq!(citation.extra_fields.get("%E"), Some(&vec!["Doe, Jane".to_string()]));
-        assert_eq!(citation.extra_fields.get("%Y"), Some(&vec!["Brown, Alex".to_string()]));
-        assert_eq!(citation.extra_fields.get("%?"), Some(&vec!["Helper, Sam".to_string()]));
+        assert_eq!(
+            citation.extra_fields.get("%E"),
+            Some(&vec!["Doe, Jane".to_string()])
+        );
+        assert_eq!(
+            citation.extra_fields.get("%Y"),
+            Some(&vec!["Brown, Alex".to_string()])
+        );
+        assert_eq!(
+            citation.extra_fields.get("%?"),
+            Some(&vec!["Helper, Sam".to_string()])
+        );
         assert_eq!(
             citation.extra_fields.get("%H"),
             Some(&vec!["Translator, Terry".to_string()])
@@ -159,8 +179,14 @@ mod tests {
 
         let citation = EnwParser::new().parse(input).unwrap().remove(0);
         assert_eq!(citation.journal.as_deref(), Some("Journal Name"));
-        assert_eq!(citation.extra_fields.get("%B"), Some(&vec!["Conference Name".to_string()]));
-        assert_eq!(citation.extra_fields.get("%S"), Some(&vec!["Tertiary Title".to_string()]));
+        assert_eq!(
+            citation.extra_fields.get("%B"),
+            Some(&vec!["Conference Name".to_string()])
+        );
+        assert_eq!(
+            citation.extra_fields.get("%S"),
+            Some(&vec!["Tertiary Title".to_string()])
+        );
         assert!(citation.extra_fields.get("%J").is_none());
     }
 
@@ -177,7 +203,10 @@ mod tests {
         assert_eq!(date.year, 2007);
         assert_eq!(date.month, Some(5));
         assert_eq!(date.day, Some(2));
-        assert_eq!(citation.extra_fields.get("%D"), Some(&vec!["2006".to_string()]));
+        assert_eq!(
+            citation.extra_fields.get("%D"),
+            Some(&vec!["2006".to_string()])
+        );
     }
 
     #[test]
@@ -193,7 +222,10 @@ mod tests {
         assert_eq!(date.year, 2006);
         assert_eq!(date.month, None);
         assert_eq!(date.day, None);
-        assert_eq!(citation.extra_fields.get("%8"), Some(&vec!["not-a-date".to_string()]));
+        assert_eq!(
+            citation.extra_fields.get("%8"),
+            Some(&vec!["not-a-date".to_string()])
+        );
     }
 
     #[test]
@@ -215,7 +247,10 @@ mod tests {
                 "https://example.com/full.pdf".to_string()
             ]
         );
-        assert_eq!(citation.extra_fields.get("%R"), Some(&vec!["PMID-12345".to_string()]));
+        assert_eq!(
+            citation.extra_fields.get("%R"),
+            Some(&vec!["PMID-12345".to_string()])
+        );
     }
 
     #[test]

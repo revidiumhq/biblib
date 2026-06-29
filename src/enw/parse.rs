@@ -210,7 +210,8 @@ pub(crate) fn parse_enw(content: &str) -> Result<Vec<Citation>, ParseError> {
         }
 
         if raw_line.starts_with('%') {
-            let (tag, value) = parse_enw_line(raw_line, line_number, line_byte_start, line_byte_end)?;
+            let (tag, value) =
+                parse_enw_line(raw_line, line_number, line_byte_start, line_byte_end)?;
 
             if matches!(tag, EnwTag::ReferenceType) {
                 if current.has_content() {

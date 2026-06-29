@@ -193,7 +193,11 @@ impl<'a> Parser<'a> {
 
         let key = self.source[key_start..self.pos].trim().to_string();
         if key.is_empty() {
-            return Err(self.syntax_error(key_start, self.pos, "Bib entry is missing a citation key"));
+            return Err(self.syntax_error(
+                key_start,
+                self.pos,
+                "Bib entry is missing a citation key",
+            ));
         }
 
         let mut fields = Vec::new();
@@ -309,11 +313,9 @@ impl<'a> Parser<'a> {
                     Ok(FieldExpr::Ident(token))
                 }
             }
-            Some(_) => Err(self.syntax_error(
-                self.pos,
-                self.pos,
-                "Expected a BibTeX/BibLaTeX value",
-            )),
+            Some(_) => {
+                Err(self.syntax_error(self.pos, self.pos, "Expected a BibTeX/BibLaTeX value"))
+            }
             None => Err(self.syntax_error(
                 self.pos,
                 self.pos,
@@ -358,11 +360,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Err(self.syntax_error(
-            start,
-            self.pos,
-            "Unterminated braced value in .bib input",
-        ))
+        Err(self.syntax_error(start, self.pos, "Unterminated braced value in .bib input"))
     }
 
     fn parse_quoted_string(&mut self) -> Result<String, ParseError> {
@@ -391,11 +389,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Err(self.syntax_error(
-            start,
-            self.pos,
-            "Unterminated quoted value in .bib input",
-        ))
+        Err(self.syntax_error(start, self.pos, "Unterminated quoted value in .bib input"))
     }
 
     fn skip_balanced_block(&mut self, open: char, close: char) -> Result<(), ParseError> {
@@ -502,11 +496,9 @@ impl<'a> Parser<'a> {
                 self.bump_char();
                 Ok(())
             }
-            Some(_) => Err(self.syntax_error(
-                self.pos,
-                self.pos,
-                &format!("Expected '{}'", expected),
-            )),
+            Some(_) => {
+                Err(self.syntax_error(self.pos, self.pos, &format!("Expected '{}'", expected)))
+            }
             None => Err(self.syntax_error(
                 self.pos,
                 self.pos,
@@ -609,7 +601,10 @@ impl Resolver {
             .and_then(|values| values.first())
             .map(|field| field.value.trim().to_string())
             .filter(|value| !value.is_empty())
-            && let Some(parent_index) = self.entry_lookup.get(&crossref.to_ascii_lowercase()).copied()
+            && let Some(parent_index) = self
+                .entry_lookup
+                .get(&crossref.to_ascii_lowercase())
+                .copied()
             && !stack.contains(&parent_index)
         {
             let parent = self.resolve_entry(parent_index, stack);
@@ -709,7 +704,8 @@ impl Resolver {
         let date = take_date(&mut fields);
         let volume = take_first_value(&mut fields, "volume");
         let issue = take_preferred_value(&mut fields, &["number", "issue"]);
-        let pages = take_first_value(&mut fields, "pages").map(|pages| crate::utils::format_page_numbers(&pages));
+        let pages = take_first_value(&mut fields, "pages")
+            .map(|pages| crate::utils::format_page_numbers(&pages));
         let publisher = take_first_value(&mut fields, "publisher");
         let language = take_preferred_value(&mut fields, &["language", "langid"]);
         let abstract_text = take_joined_value(&mut fields, "abstract");
@@ -869,10 +865,12 @@ fn take_date(fields: &mut HashMap<String, Vec<ResolvedField>>) -> Option<crate::
         return Some(date);
     }
 
-    if let Some(year) = fields
-        .get("year")
-        .and_then(|values| values.iter().map(ResolvedField::canonical_text).find(|value| !value.trim().is_empty()))
-    {
+    if let Some(year) = fields.get("year").and_then(|values| {
+        values
+            .iter()
+            .map(ResolvedField::canonical_text)
+            .find(|value| !value.trim().is_empty())
+    }) {
         let month_value = fields.get("month").and_then(|values| {
             values
                 .iter()
@@ -965,10 +963,7 @@ fn take_joined_value(
     (!joined.is_empty()).then_some(joined)
 }
 
-fn take_first_value(
-    fields: &mut HashMap<String, Vec<ResolvedField>>,
-    key: &str,
-) -> Option<String> {
+fn take_first_value(fields: &mut HashMap<String, Vec<ResolvedField>>, key: &str) -> Option<String> {
     let values = fields.remove(key)?;
     values
         .into_iter()
@@ -981,10 +976,12 @@ fn take_preferred_value(
     keys: &[&str],
 ) -> Option<String> {
     for key in keys {
-        if let Some(value) = fields
-            .get(*key)
-            .and_then(|values| values.iter().map(ResolvedField::canonical_text).find(|value| !value.trim().is_empty()))
-        {
+        if let Some(value) = fields.get(*key).and_then(|values| {
+            values
+                .iter()
+                .map(ResolvedField::canonical_text)
+                .find(|value| !value.trim().is_empty())
+        }) {
             fields.remove(*key);
             return Some(value);
         }
@@ -1111,7 +1108,9 @@ fn parse_person(person: &str) -> Option<Author> {
         2 => (comma_parts[0].to_string(), comma_parts[1].to_string()),
         _ => (
             comma_parts[0].to_string(),
-            format!("{} {}", comma_parts[2], comma_parts[1]).trim().to_string(),
+            format!("{} {}", comma_parts[2], comma_parts[1])
+                .trim()
+                .to_string(),
         ),
     };
 
