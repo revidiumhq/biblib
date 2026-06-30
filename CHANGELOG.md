@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-30
+
+### Added
+
+- **ICTRP XML parser**: Added first-class `IctrpXmlParser` support for WHO ICTRP XML exports, including XML-specific auto-detection in `detect_and_parse()`.
+- **`CitationFormat::IctrpXml`**: Added a dedicated format variant for ICTRP XML input.
+
+### Changed
+
+- **ICTRP format preference**: README, crate docs, and `docs/parsing-guide.md` now document ICTRP XML as the preferred ICTRP ingestion path.
+- **ICTRP CSV deprecation**: `IctrpCsvParser` remains available for backward compatibility, but is now deprecated in favor of `IctrpXmlParser`.
+- **ICTRP auto-detection expanded**: `detect_and_parse()` now recognizes both ICTRP XML and ICTRP CSV input.
+
+### Migration Notes
+
+#### `CitationFormat` exhaustive matches
+
+If you match every `CitationFormat` variant, add a branch for
+`CitationFormat::IctrpXml`.
+
+```rust
+// Before (0.6.x):
+match format {
+    CitationFormat::Ris => { /* ... */ }
+    CitationFormat::PubMed => { /* ... */ }
+    CitationFormat::EndNoteXml => { /* ... */ }
+    CitationFormat::Enw => { /* ... */ }
+    CitationFormat::Bib => { /* ... */ }
+    CitationFormat::Csv => { /* ... */ }
+    CitationFormat::IctrpCsv => { /* ... */ }
+    CitationFormat::Unknown => { /* ... */ }
+}
+
+// After (0.7.x):
+match format {
+    CitationFormat::Ris => { /* ... */ }
+    CitationFormat::PubMed => { /* ... */ }
+    CitationFormat::EndNoteXml => { /* ... */ }
+    CitationFormat::IctrpXml => { /* ... */ }
+    CitationFormat::Enw => { /* ... */ }
+    CitationFormat::Bib => { /* ... */ }
+    CitationFormat::Csv => { /* ... */ }
+    CitationFormat::IctrpCsv => { /* ... */ }
+    CitationFormat::Unknown => { /* ... */ }
+}
+```
+
 ## [0.6.0] - 2026-06-28
 
 ### Added
@@ -18,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Feature flags expanded**: Added the `bib` and `enw` features and enabled them by default.
 - **Auto-detection expanded**: `detect_and_parse()` now recognizes BibTeX / BibLaTeX input.
 - **ICTRP CSV parsing tolerance**: `IctrpCsvParser` now tolerates inconsistent row lengths in malformed real-world ICTRP exports instead of failing the entire parse.
-- **Documentation updated**: README, crate docs, and `PARSING_GUIDE.md` now document both ENW and `.bib` parsing behavior.
+- **Documentation updated**: README, crate docs, and `docs/parsing-guide.md` now document both ENW and `.bib` parsing behavior.
 
 ### Migration Guide
 
@@ -231,8 +278,8 @@ match parse_with_diagnostics(&RisParser::new(), &source, "citations.ris") {
 ### Added
 
 - **Multi-author parsing for RIS**: The RIS parser now handles multiple authors on a single AU line, splitting on semicolons (`;`), ampersands (`&`), and the word `and`
-- **PARSING_GUIDE.md**: Comprehensive documentation for all format parsers (RIS, PubMed, EndNote XML, CSV) including tag mappings, date formats, and data transformations
-- **DEDUPLICATION_GUIDE.md**: Detailed documentation of the deduplication algorithm, similarity thresholds, normalization rules, and configuration options
+- **docs/parsing-guide.md**: Comprehensive documentation for all format parsers (RIS, PubMed, EndNote XML, CSV) including tag mappings, date formats, and data transformations
+- **docs/deduplication-guide.md**: Detailed documentation of the deduplication algorithm, similarity thresholds, normalization rules, and configuration options
 
 ### Changed
 

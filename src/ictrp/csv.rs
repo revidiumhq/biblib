@@ -1,6 +1,4 @@
-use crate::csv::config::CsvConfig;
-use crate::csv::parse::csv_parse_with_format;
-use crate::csv::structure::RawCsvData;
+use crate::csv::{CsvConfig, RawCsvData, csv_parse_with_format};
 use crate::error::{ParseError, SourceSpan, ValueError, fields};
 use crate::ictrp::{dedupe_urls, parse_ictrp_compact_date, parse_ictrp_standard_date};
 use crate::{Citation, CitationFormat, CitationParser};

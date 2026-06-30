@@ -29,14 +29,14 @@ All parser outputs converge on the same `Citation` struct, including normalized 
 
 ```toml
 [dependencies]
-biblib = "0.6"
+biblib = "0.7"
 ```
 
 For a smaller build:
 
 ```toml
 [dependencies]
-biblib = { version = "0.6", default-features = false, features = ["ris"] }
+biblib = { version = "0.7", default-features = false, features = ["ris"] }
 ```
 
 ## Quick Start
@@ -308,7 +308,7 @@ For human-friendly diagnostics, enable `diagnostics`:
 
 ```toml
 [dependencies]
-biblib = { version = "0.6", features = ["diagnostics"] }
+biblib = { version = "0.7", features = ["diagnostics"] }
 ```
 
 Then use `parse_with_diagnostics()`:
@@ -324,8 +324,8 @@ assert!(rendered.is_err());
 
 ## Guides
 
-- [PARSING_GUIDE.md](PARSING_GUIDE.md) - format-specific mapping and normalization rules
-- [DEDUPLICATION_GUIDE.md](DEDUPLICATION_GUIDE.md) - duplicate matching behavior and configuration
+- [docs/parsing-guide.md](docs/parsing-guide.md) - format-specific mapping and normalization rules
+- [docs/deduplication-guide.md](docs/deduplication-guide.md) - duplicate matching behavior and configuration
 - [docs.rs/biblib](https://docs.rs/biblib) - API reference
 
 ## License

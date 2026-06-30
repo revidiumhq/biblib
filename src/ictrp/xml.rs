@@ -841,7 +841,7 @@ mod tests {
 
     #[test]
     fn test_parse_ictrp_xml_sample_file() {
-        let input = include_str!("../../ICTRP-Results (1).xml");
+        let input = include_str!("../../tests/fixtures/ictrp/who-export-sample.xml");
         let citations = IctrpXmlParser::new().parse(input).unwrap();
         assert!(!citations.is_empty());
 

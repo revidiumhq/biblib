@@ -17,16 +17,17 @@
 //! ```
 
 mod config;
-mod ictrp;
 mod parse;
 mod structure;
 
+#[allow(deprecated)]
+pub use crate::ictrp::csv::IctrpCsvParser;
+pub(crate) use crate::ictrp::looks_like_ictrp_csv;
 use crate::{Citation, CitationFormat, CitationParser};
 pub use config::CsvConfig;
-#[allow(deprecated)]
-pub use ictrp::IctrpCsvParser;
-pub(crate) use ictrp::looks_like_ictrp_csv;
 use parse::csv_parse;
+pub(crate) use parse::csv_parse_with_format;
+pub(crate) use structure::RawCsvData;
 
 /// Parser for CSV-formatted citation data with configurable mappings.
 ///

@@ -79,7 +79,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! biblib = { version = "0.6", default-features = false, features = ["ris", "csv"] }
+//! biblib = { version = "0.7", default-features = false, features = ["ris", "csv"] }
 //! ```
 //!
 //! Available public features:
@@ -173,8 +173,6 @@ pub mod endnote_xml;
 #[cfg(feature = "enw")]
 pub mod enw;
 pub mod error;
-#[cfg(feature = "xml")]
-pub mod ictrp_xml;
 #[cfg(feature = "pubmed")]
 pub mod pubmed;
 #[cfg(feature = "ris")]
@@ -194,7 +192,7 @@ pub use endnote_xml::EndNoteXmlParser;
 pub use enw::EnwParser;
 pub use error::{CitationError, ParseError, SourceSpan, ValueError};
 #[cfg(feature = "xml")]
-pub use ictrp_xml::IctrpXmlParser;
+pub use ictrp::xml::IctrpXmlParser;
 #[cfg(feature = "pubmed")]
 pub use pubmed::PubMedParser;
 #[cfg(feature = "ris")]
@@ -203,6 +201,12 @@ pub use ris::RisParser;
 mod ictrp;
 mod regex;
 mod utils;
+
+#[cfg(feature = "xml")]
+pub mod ictrp_xml {
+    pub use crate::ictrp::xml::IctrpXmlParser;
+    pub(crate) use crate::ictrp::xml::looks_like_ictrp_xml;
+}
 
 /// Citation format types supported by the library.
 #[derive(Debug, Clone, PartialEq)]
