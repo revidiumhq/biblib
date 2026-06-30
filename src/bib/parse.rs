@@ -572,7 +572,7 @@ impl Resolver {
                 continue;
             }
             let resolved = self.resolve_entry(index, &mut Vec::new());
-            citations.push(self.into_citation(resolved)?);
+            citations.push(self.build_citation(resolved)?);
         }
         Ok(citations)
     }
@@ -588,11 +588,11 @@ impl Resolver {
         let mut fields = self.resolve_local_fields(&raw_entry.fields);
 
         for key in collect_reference_keys(fields.get("xdata")) {
-            if let Some(parent_index) = self.entry_lookup.get(&key.to_ascii_lowercase()).copied() {
-                if !stack.contains(&parent_index) {
-                    let parent = self.resolve_entry(parent_index, stack);
-                    inherit_fields(&mut fields, &parent.fields);
-                }
+            if let Some(parent_index) = self.entry_lookup.get(&key.to_ascii_lowercase()).copied()
+                && !stack.contains(&parent_index)
+            {
+                let parent = self.resolve_entry(parent_index, stack);
+                inherit_fields(&mut fields, &parent.fields);
             }
         }
 
@@ -689,7 +689,7 @@ impl Resolver {
         }
     }
 
-    fn into_citation(&self, resolved: ResolvedEntry) -> Result<Citation, ParseError> {
+    fn build_citation(&self, resolved: ResolvedEntry) -> Result<Citation, ParseError> {
         let ResolvedEntry {
             entry_type,
             mut fields,
