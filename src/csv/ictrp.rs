@@ -2,16 +2,22 @@ use crate::csv::config::CsvConfig;
 use crate::csv::parse::csv_parse_with_format;
 use crate::csv::structure::RawCsvData;
 use crate::error::{ParseError, SourceSpan, ValueError, fields};
-use crate::{Citation, CitationFormat, CitationParser, Date};
+use crate::ictrp::{dedupe_urls, parse_ictrp_compact_date, parse_ictrp_standard_date};
+use crate::{Citation, CitationFormat, CitationParser};
 use csv::ReaderBuilder;
 use std::collections::HashMap;
 
 /// Parser for ICTRP CSV exports.
+#[deprecated(
+    note = "Prefer IctrpXmlParser; ICTRP XML is the supported ICTRP ingest path going forward."
+)]
 #[derive(Debug, Clone, Default)]
 pub struct IctrpCsvParser;
 
+#[allow(deprecated)]
 impl IctrpCsvParser {
     /// Creates a new ICTRP CSV parser.
+    #[allow(deprecated)]
     #[must_use]
     pub fn new() -> Self {
         Self
@@ -42,6 +48,7 @@ impl IctrpCsvParser {
     }
 }
 
+#[allow(deprecated)]
 impl CitationParser for IctrpCsvParser {
     fn parse(&self, input: &str) -> Result<Vec<Citation>, ParseError> {
         let config = Self::config();
@@ -131,7 +138,7 @@ impl RawCsvData {
             .or_else(|| {
                 self.fields
                     .remove("date_registration")
-                    .and_then(|value| parse_ictrp_slash_date(&value))
+                    .and_then(|value| parse_ictrp_standard_date(&value))
             });
 
         let publisher = self.fields.remove("publisher");
@@ -177,64 +184,11 @@ impl RawCsvData {
     }
 }
 
-fn dedupe_urls(urls: Vec<String>) -> Vec<String> {
-    let mut unique = Vec::new();
-    for url in urls {
-        if !url.trim().is_empty() && !unique.contains(&url) {
-            unique.push(url);
-        }
-    }
-    unique
-}
-
-fn parse_ictrp_compact_date(value: &str) -> Option<Date> {
-    let trimmed = value.trim();
-    if trimmed.len() != 8 {
-        return None;
-    }
-
-    let year = trimmed[0..4].parse().ok()?;
-    let month = trimmed[4..6].parse().ok()?;
-    let day = trimmed[6..8].parse().ok()?;
-
-    Some(Date {
-        year,
-        month: Some(month),
-        day: Some(day),
-    })
-}
-
-fn parse_ictrp_slash_date(value: &str) -> Option<Date> {
-    let parts = value.trim().split('/').map(str::trim).collect::<Vec<_>>();
-
-    if parts.len() != 3 {
-        return None;
-    }
-
-    let (year, month, day) = if parts[0].len() == 4 {
-        (
-            parts[0].parse().ok()?,
-            parts[1].parse().ok()?,
-            parts[2].parse().ok()?,
-        )
-    } else {
-        (
-            parts[2].parse().ok()?,
-            parts[1].parse().ok()?,
-            parts[0].parse().ok()?,
-        )
-    };
-
-    Some(Date {
-        year,
-        month: Some(month),
-        day: Some(day),
-    })
-}
-
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
+    use crate::Date;
 
     #[test]
     fn test_looks_like_ictrp_csv() {
@@ -315,5 +269,23 @@ mod tests {
         assert_eq!(citation.title, "Scientific title");
         assert_eq!(citation.publisher.as_deref(), Some("Sponsor"));
         assert_eq!(citation.citation_type, vec!["Clinical Trial"]);
+    }
+
+    #[test]
+    fn test_parse_ictrp_csv_supports_hyphen_dates() {
+        let input = concat!(
+            "TrialID,Public title,Scientific title,Date registration,Source Register\n",
+            "NCT00000005,Public title,Scientific title,2026-05-01,ClinicalTrials.gov\n"
+        );
+
+        let citation = IctrpCsvParser::new().parse(input).unwrap().remove(0);
+        assert_eq!(
+            citation.date,
+            Some(Date {
+                year: 2026,
+                month: Some(5),
+                day: Some(1)
+            })
+        );
     }
 }

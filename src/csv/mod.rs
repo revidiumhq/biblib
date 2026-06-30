@@ -23,6 +23,7 @@ mod structure;
 
 use crate::{Citation, CitationFormat, CitationParser};
 pub use config::CsvConfig;
+#[allow(deprecated)]
 pub use ictrp::IctrpCsvParser;
 pub(crate) use ictrp::looks_like_ictrp_csv;
 use parse::csv_parse;

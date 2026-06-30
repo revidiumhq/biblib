@@ -436,8 +436,16 @@ fn parse_iso_like_date(date_str: &str) -> Option<Date> {
     }
 
     let year = parts.first()?.parse::<i32>().ok()?;
-    let month = parts.get(1)?.parse::<u8>().ok().filter(|m| (1..=12).contains(m))?;
-    let day = parts.get(2)?.parse::<u8>().ok().filter(|d| (1..=31).contains(d))?;
+    let month = parts
+        .get(1)?
+        .parse::<u8>()
+        .ok()
+        .filter(|m| (1..=12).contains(m))?;
+    let day = parts
+        .get(2)?
+        .parse::<u8>()
+        .ok()
+        .filter(|d| (1..=31).contains(d))?;
 
     Some(Date {
         year,
@@ -454,7 +462,11 @@ fn parse_month_day_year_date(date_str: &str) -> Option<Date> {
     }
 
     let month = parse_month_name(parts[0])?;
-    let day = parts.get(1)?.parse::<u8>().ok().filter(|d| (1..=31).contains(d))?;
+    let day = parts
+        .get(1)?
+        .parse::<u8>()
+        .ok()
+        .filter(|d| (1..=31).contains(d))?;
     let year = parts.get(2)?.parse::<i32>().ok()?;
 
     Some(Date {

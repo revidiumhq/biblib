@@ -7,6 +7,7 @@ This guide documents the parsing behaviors, assumptions, and data transformation
 - [RIS Format](#ris-format)
 - [PubMed/MEDLINE Format](#pubmedmedline-format)
 - [EndNote XML Format](#endnote-xml-format)
+- [ICTRP XML Format](#ictrp-xml-format)
 - [EndNote Tagged (`.enw`) Format](#endnote-tagged-enw-format)
 - [BibTeX / BibLaTeX (`.bib`) Format](#bibtex--biblatex-bib-format)
 - [CSV Format](#csv-format)
@@ -335,33 +336,139 @@ Results in 3 separate authors.
 
 ---
 
-## ICTRP CSV Format
+## ICTRP XML Format
 
-ICTRP exports are parsed by the dedicated `IctrpCsvParser`, which reuses the CSV reader but applies ICTRP-specific field mapping.
+`IctrpXmlParser` is the preferred parser for WHO ICTRP exports. It exists to
+replace the older CSV-based ingestion path, which can lose field alignment when
+real-world ICTRP CSV rows overflow their header width. The XML parser reads each
+`<Trial>` record into one `Citation` and preserves the existing ICTRP
+normalization rules wherever the XML and CSV exports overlap.
 
-### Key Field Mappings
+### What Gets Mapped
 
-| ICTRP Column | Field | Notes |
-|--------------|-------|-------|
-| `TrialID` | `accession_number` | Required canonical registry identifier |
-| `Scientific title` | `title` | Primary title |
-| `Public title` | `title` fallback | Also preserved in `extra_fields` |
-| `Date registration3` | `date` | Preferred compact `YYYYMMDD` source |
-| `Date registration` | `date` fallback | Supports slash-separated dates |
-| `Primary sponsor` | `publisher` | |
-| `Study type` | `citation_type` | Stored after `Clinical Trial` when present |
-| `web address` | `urls` | Deduplicated with results URLs |
-| `results url link` | `urls` | |
-| `results url protocol` | `urls` | |
-| `Secondary ID` | `extra_fields` | Preserved raw |
+| ICTRP XML Tag | Citation field | Behavior |
+|---------------|----------------|----------|
+| `<TrialID>` | `accession_number` | Required |
+| `<Scientific_title>` | `title` | Primary title |
+| `<Public_title>` | `title` fallback | Used only when `Scientific_title` is missing |
+| `<Date_registration3>` | `date` | Preferred source |
+| `<Date_registration>` | `date` fallback | Used when `Date_registration3` is absent or unparseable |
+| `<Primary_sponsor>` | `publisher` | Primary sponsor name |
+| `<Study_type>` | `citation_type` | Appended after `Clinical Trial` when distinct |
+| `<web_address>` | `urls` | Deduplicated with other result URLs |
+| `<results_url_link>` | `urls` | Deduplicated with other result URLs |
+| `<results_url_protocol>` | `urls` | Deduplicated with other result URLs |
 
-### Notes
+### Core Rules
 
-- `citation_type` always starts with `Clinical Trial`; `Study type` is appended second when present and distinct.
-- `authors` is left empty because ICTRP exports sponsor and contact metadata rather than article authors.
-- Remaining non-empty ICTRP columns are preserved in `extra_fields`.
+- Every parsed ICTRP citation starts with `citation_type = ["Clinical Trial"]`.
+- If `Study_type` is present and not already `Clinical Trial`, it is appended as a
+  second `citation_type` value.
+- `authors` stays empty because ICTRP exports registry metadata, not article-style
+  author lists.
+- `TrialID` is required. Missing `TrialID` is a hard parse error.
+- `Scientific_title` is preferred. `Public_title` is only a fallback.
+- Dates accept the ICTRP formats seen in the XML exports:
+  - `YYYYMMDD`
+  - `DD/MM/YYYY`
+  - `YYYY-MM-DD`
+
+### `extra_fields` Behavior
+
+All remaining non-empty XML tags are preserved in `extra_fields` under their raw
+ICTRP XML tag names such as `Source_Register`, `Inclusion_Criteria`,
+`Countries`, or `results_date_posted`.
+
+Fields already consumed into first-class `Citation` fields are not duplicated in
+`extra_fields`. For example, if `Date_registration3` is successfully used for
+`date`, that tag is removed from the leftovers instead of being stored twice.
+
+Empty tags and self-closing tags are ignored.
+
+### Source-Faithful Normalization
+
+The XML parser is intentionally conservative. It does not try to rewrite trial
+content heuristically, but it does apply a small amount of structural cleanup so
+the parsed text is usable:
+
+- XML entities are decoded.
+- Escaped or literal `<br>` markers are converted to line breaks.
+- ICTRP carriage-return character references such as `&#x0D;` are preserved long
+  enough to keep wrapped words from being glued together during parsing.
+- Soft-wrapped continuation lines in long fields such as
+  `Inclusion_Criteria` and `Exclusion_Criteria` are rejoined into the same
+  sentence when the XML export split them across lines.
+- Comparison operators remain plain ASCII text. Escaped forms such as `&lt;=`
+  are decoded back to `<=`, and literal `<`, `>`, `<=`, and `>=` are preserved.
+
+### Contact Field Normalization
+
+The following ICTRP XML tags are treated as list-like contact metadata:
+
+- `Contact_Firstname`
+- `Contact_Lastname`
+- `Contact_Email`
+- `Contact_Tel`
+- `Contact_Affiliation`
+
+For those tags only:
+
+- semicolon-delimited values are split into separate `extra_fields` entries
+- empty segments are removed
+- duplicate values are deduplicated in order
+- placeholder-only values such as `";"` are dropped
+
+This means those contact fields are preserved under their raw XML tag names, but
+not always as a single byte-for-byte source string.
+
+### Error Model
+
+The ICTRP XML parser follows the crate-wide fail-fast contract. It stops on the
+first invalid record and returns a `ParseError`. Where practical, ICTRP XML
+errors include record-level position context derived from the XML reader buffer.
 
 ### Auto-Detection
+
+`detect_and_parse()` recognizes ICTRP XML by ICTRP-specific structure, not by
+generic XML syntax alone. Detection looks for the
+`Trials_downloaded_from_ICTRP` root and `Trial` records, and this check runs
+before generic EndNote XML detection.
+
+---
+
+## ICTRP CSV Format
+
+`IctrpCsvParser` remains available for backward compatibility, but it is now a
+deprecated compatibility path. New ICTRP ingestion should prefer
+`IctrpXmlParser`.
+
+The CSV parser still exists because older integrations may already depend on it,
+and `detect_and_parse()` continues to recognize ICTRP CSV input. The field
+mapping is intentionally aligned with the XML parser so both formats produce the
+same core `Citation` data where the source fields overlap.
+
+### CSV Mapping Baseline
+
+| ICTRP CSV Column | Citation field | Behavior |
+|------------------|----------------|----------|
+| `TrialID` | `accession_number` | Required |
+| `Scientific title` | `title` | Primary title |
+| `Public title` | `title` fallback | Used only when `Scientific title` is missing |
+| `Date registration3` | `date` | Preferred source |
+| `Date registration` | `date` fallback | Used when `Date registration3` is absent or unparseable |
+| `Primary sponsor` | `publisher` | Primary sponsor name |
+| `Study type` | `citation_type` | Appended after `Clinical Trial` when distinct |
+| `web address` | `urls` | Deduplicated with other result URLs |
+| `results url link` | `urls` | Deduplicated with other result URLs |
+| `results url protocol` | `urls` | Deduplicated with other result URLs |
+
+### Compatibility Notes
+
+- `authors` stays empty here for the same reason as XML.
+- Remaining non-empty ICTRP CSV columns are preserved in `extra_fields`.
+- CSV auto-detection remains enabled for backward compatibility.
+- XML should be preferred for new pipelines because malformed ICTRP CSV exports
+  can still contain row-shape issues that do not exist in the XML release.
 
 When enabled, the parser automatically detects:
 - **Delimiter**: comma, semicolon, or tab

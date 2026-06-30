@@ -17,10 +17,11 @@ It is built for import pipelines, evidence synthesis tooling, registry ingestion
 | RIS | `ris` | `RisParser` |
 | PubMed / MEDLINE (`.nbib`) | `pubmed` | `PubMedParser` |
 | EndNote XML | `xml` | `EndNoteXmlParser` |
+| ICTRP registry XML exports | `xml` | `IctrpXmlParser` |
 | EndNote Tagged / EndNote Web (`.enw`) | `enw` | `EnwParser` |
 | BibTeX / BibLaTeX (`.bib`) | `bib` | `BibParser` |
 | Generic CSV / delimited data | `csv` | `csv::CsvParser` |
-| ICTRP registry CSV exports | `csv` | `IctrpCsvParser` |
+| ICTRP registry CSV exports | `csv` | `IctrpCsvParser` (deprecated) |
 
 All parser outputs converge on the same `Citation` struct, including normalized fields such as `title`, `authors`, `date`, `doi`, `accession_number`, `pmid`, `pmc_id`, `urls`, and `extra_fields`.
 
@@ -122,7 +123,7 @@ assert_eq!(citations[0].doi.as_deref(), Some("10.1000/example"));
 
 ### Auto-detect Supported Formats
 
-`detect_and_parse()` currently auto-detects RIS, PubMed, EndNote XML, EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), and ICTRP CSV. Generic CSV should still be parsed explicitly with `CsvParser`.
+`detect_and_parse()` currently auto-detects RIS, PubMed, ICTRP XML, EndNote XML, EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), and ICTRP CSV. ICTRP XML is the preferred ICTRP ingestion path; ICTRP CSV remains supported for backward compatibility. Generic CSV should still be parsed explicitly with `CsvParser`.
 
 ```rust
 use biblib::detect_and_parse;
@@ -134,23 +135,38 @@ assert_eq!(format.as_str(), "RIS");
 assert_eq!(citations[0].title, "Example");
 ```
 
-### Parse ICTRP CSV
+### Parse ICTRP XML
 
 ```rust
-use biblib::{CitationParser, IctrpCsvParser};
+use biblib::{CitationParser, IctrpXmlParser};
 
-let input = concat!(
-    "TrialID,Public title,Scientific title,Date registration,Date registration3,Study type,Source Register\n",
-    "NCT00000001,Public title,Scientific title,01/05/2026,20260501,Interventional,ClinicalTrials.gov\n"
-);
+let input = r#"<?xml version='1.0' encoding='UTF-8' ?>
+<Trials_downloaded_from_ICTRP>
+  <Trial>
+    <TrialID>NCT00000001</TrialID>
+    <Public_title>Public title</Public_title>
+    <Scientific_title>Scientific title</Scientific_title>
+    <Date_registration3>20260501</Date_registration3>
+    <Study_type>Interventional</Study_type>
+    <Source_Register>ClinicalTrials.gov</Source_Register>
+  </Trial>
+</Trials_downloaded_from_ICTRP>"#;
 
-let citations = IctrpCsvParser::new().parse(input).unwrap();
+let citations = IctrpXmlParser::new().parse(input).unwrap();
 let citation = &citations[0];
 
 assert_eq!(citation.accession_number.as_deref(), Some("NCT00000001"));
 assert_eq!(citation.title, "Scientific title");
 assert_eq!(citation.citation_type, vec!["Clinical Trial", "Interventional"]);
 ```
+
+This is the recommended ICTRP ingestion path for new integrations.
+
+### Parse ICTRP CSV (Deprecated)
+
+`IctrpCsvParser` remains available for backward compatibility, but new ICTRP
+ingestion should prefer XML because malformed CSV rows can lose field
+alignment in real-world exports.
 
 ### Parse Generic CSV with Custom Headers
 
@@ -252,10 +268,10 @@ This makes it easy to normalize aggressively where the library has clear semanti
 | --- | --- |
 | `ris` | RIS parser |
 | `pubmed` | PubMed / MEDLINE parser |
-| `xml` | EndNote XML parser |
+| `xml` | EndNote XML parser and ICTRP XML parser |
 | `enw` | EndNote Tagged (`.enw`) parser |
 | `bib` | BibTeX / BibLaTeX (`.bib`) parser |
-| `csv` | Generic CSV parser and ICTRP CSV parser |
+| `csv` | Generic CSV parser and deprecated ICTRP CSV parser |
 | `dedupe` | Deduplication engine |
 | `diagnostics` | Pretty parse diagnostics via `ariadne` |
 

@@ -278,6 +278,7 @@ mod tests {
         assert_eq!(format!("{}", CitationFormat::Ris), "RIS");
         assert_eq!(format!("{}", CitationFormat::PubMed), "PubMed");
         assert_eq!(format!("{}", CitationFormat::EndNoteXml), "EndNote XML");
+        assert_eq!(format!("{}", CitationFormat::IctrpXml), "ICTRP XML");
         assert_eq!(format!("{}", CitationFormat::Enw), "EndNote Tagged");
         assert_eq!(format!("{}", CitationFormat::Bib), "BibTeX / BibLaTeX");
         assert_eq!(format!("{}", CitationFormat::Csv), "CSV");

@@ -10,8 +10,9 @@
 //!
 //! # What You Get
 //!
-//! - Dedicated parsers for RIS, PubMed / MEDLINE, EndNote XML, EndNote Tagged
-//!   (`.enw`), BibTeX / BibLaTeX (`.bib`), generic CSV, and ICTRP CSV exports
+//! - Dedicated parsers for RIS, PubMed / MEDLINE, EndNote XML, ICTRP XML,
+//!   EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), generic CSV, and
+//!   ICTRP CSV exports
 //! - A shared [`Citation`] output type with normalized identifiers such as DOI,
 //!   PMID, PMCID, and `accession_number`
 //! - Preservation of source-specific leftovers through `extra_fields`
@@ -40,7 +41,7 @@
 //!
 //! ```rust
 //! use biblib::{
-//!     BibParser, CitationParser, EndNoteXmlParser, EnwParser, IctrpCsvParser, PubMedParser,
+//!     BibParser, CitationParser, EndNoteXmlParser, EnwParser, IctrpXmlParser, PubMedParser,
 //!     RisParser,
 //! };
 //! use biblib::csv::CsvParser;
@@ -48,17 +49,19 @@
 //! let _ris = RisParser::new();
 //! let _pubmed = PubMedParser::new();
 //! let _endnote = EndNoteXmlParser::new();
+//! let _ictrp_xml = IctrpXmlParser::new();
 //! let _enw = EnwParser::new();
 //! let _bib = BibParser::new();
 //! let _csv = CsvParser::new();
-//! let _ictrp = IctrpCsvParser::new();
 //! ```
 //!
 //! # Auto-Detection
 //!
-//! [`detect_and_parse`] currently auto-detects RIS, PubMed, EndNote XML,
-//! EndNote Tagged, BibTeX / BibLaTeX, and ICTRP CSV. Generic CSV remains
-//! explicit because header mapping is application-specific.
+//! [`detect_and_parse`] currently auto-detects RIS, PubMed, ICTRP XML,
+//! EndNote XML, EndNote Tagged, BibTeX / BibLaTeX, and ICTRP CSV. ICTRP XML
+//! is the preferred ICTRP ingestion path; ICTRP CSV remains for backward
+//! compatibility. Generic CSV remains explicit because header mapping is
+//! application-specific.
 //!
 //! ```rust
 //! use biblib::detect_and_parse;
@@ -165,33 +168,39 @@ pub mod csv;
 pub mod dedupe;
 #[cfg(feature = "diagnostics")]
 pub mod diagnostics;
-#[cfg(feature = "enw")]
-pub mod enw;
 #[cfg(feature = "xml")]
 pub mod endnote_xml;
+#[cfg(feature = "enw")]
+pub mod enw;
 pub mod error;
+#[cfg(feature = "xml")]
+pub mod ictrp_xml;
 #[cfg(feature = "pubmed")]
 pub mod pubmed;
 #[cfg(feature = "ris")]
 pub mod ris;
 
 // Reexports
-#[cfg(feature = "csv")]
-pub use csv::{CsvParser, IctrpCsvParser};
 #[cfg(feature = "bib")]
 pub use bib::BibParser;
+#[cfg(feature = "csv")]
+#[allow(deprecated)]
+pub use csv::{CsvParser, IctrpCsvParser};
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::parse_with_diagnostics;
-#[cfg(feature = "enw")]
-pub use enw::EnwParser;
 #[cfg(feature = "xml")]
 pub use endnote_xml::EndNoteXmlParser;
+#[cfg(feature = "enw")]
+pub use enw::EnwParser;
 pub use error::{CitationError, ParseError, SourceSpan, ValueError};
+#[cfg(feature = "xml")]
+pub use ictrp_xml::IctrpXmlParser;
 #[cfg(feature = "pubmed")]
 pub use pubmed::PubMedParser;
 #[cfg(feature = "ris")]
 pub use ris::RisParser;
 
+mod ictrp;
 mod regex;
 mod utils;
 
@@ -201,6 +210,7 @@ pub enum CitationFormat {
     Ris,
     PubMed,
     EndNoteXml,
+    IctrpXml,
     Enw,
     Bib,
     Csv,
@@ -215,6 +225,7 @@ impl CitationFormat {
             CitationFormat::Ris => "RIS",
             CitationFormat::PubMed => "PubMed",
             CitationFormat::EndNoteXml => "EndNote XML",
+            CitationFormat::IctrpXml => "ICTRP XML",
             CitationFormat::Enw => "EndNote Tagged",
             CitationFormat::Bib => "BibTeX / BibLaTeX",
             CitationFormat::Csv => "CSV",
@@ -372,6 +383,15 @@ pub fn detect_and_parse(
     }
 
     // Try to detect format based on content patterns
+    #[cfg(feature = "xml")]
+    if ictrp_xml::looks_like_ictrp_xml(content) {
+        let parser = IctrpXmlParser::new();
+        return parser
+            .parse(content)
+            .map(|citations| (citations, CitationFormat::IctrpXml))
+            .map_err(CitationError::Parse);
+    }
+
     if trimmed.starts_with("<?xml") || trimmed.starts_with("<xml>") {
         // EndNote XML format
         #[cfg(feature = "xml")]
@@ -433,6 +453,7 @@ pub fn detect_and_parse(
 
     #[cfg(feature = "csv")]
     if csv::looks_like_ictrp_csv(content) {
+        #[allow(deprecated)]
         let parser = IctrpCsvParser::new();
         return parser
             .parse(content)
@@ -498,6 +519,25 @@ FAU - Smith, John"#;
         assert_eq!(citations[0].title, "Test Title");
     }
 
+    #[cfg(feature = "xml")]
+    #[test]
+    fn test_detect_and_parse_ictrp_xml() {
+        let content = r#"<?xml version='1.0' encoding='UTF-8' ?>
+<Trials_downloaded_from_ICTRP>
+  <Trial>
+    <TrialID>NCT00000001</TrialID>
+    <Scientific_title>Scientific title</Scientific_title>
+  </Trial>
+</Trials_downloaded_from_ICTRP>"#;
+
+        let (citations, format) = detect_and_parse(content).unwrap();
+        assert_eq!(format, CitationFormat::IctrpXml);
+        assert_eq!(
+            citations[0].accession_number.as_deref(),
+            Some("NCT00000001")
+        );
+    }
+
     #[cfg(feature = "enw")]
     #[test]
     fn test_detect_and_parse_enw() {
@@ -539,6 +579,7 @@ FAU - Smith, John"#;
     }
 
     #[cfg(feature = "csv")]
+    #[allow(deprecated)]
     #[test]
     fn test_detect_and_parse_ictrp_csv() {
         let content = concat!(
