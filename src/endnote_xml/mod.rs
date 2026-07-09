@@ -479,7 +479,7 @@ mod integration_tests {
             println!("Error at line {}: {}", line, parse_error.error);
             // The empty record starts around line 4, buffer position captured earlier
             assert!(
-                line >= 3 && line <= 7,
+                (3..=7).contains(&line),
                 "Line number should be around line 3-7, got {}",
                 line
             );
