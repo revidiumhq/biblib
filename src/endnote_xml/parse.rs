@@ -220,17 +220,17 @@ fn parse_record<B: BufRead>(
                                     XmlVersion::Explicit1_1,
                                     reader.decoder(),
                                 )
-                                    .map_err(|e| {
-                                        ParseError::at_line(
-                                            attr_line,
-                                            CitationFormat::EndNoteXml,
-                                            ValueError::Syntax(format!(
-                                                "Invalid attribute value: {}",
-                                                e
-                                            )),
-                                        )
-                                    })?
-                                    .into_owned(),
+                                .map_err(|e| {
+                                    ParseError::at_line(
+                                        attr_line,
+                                        CitationFormat::EndNoteXml,
+                                        ValueError::Syntax(format!(
+                                            "Invalid attribute value: {}",
+                                            e
+                                        )),
+                                    )
+                                })?
+                                .into_owned(),
                             );
                         }
                     }
