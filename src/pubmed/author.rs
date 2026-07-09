@@ -257,7 +257,7 @@ mod tests {
     #[case(&["Watson JD", "Watson JD"])]
     fn test_resolve_author_consecutive_au(#[case] names: &[&str]) {
         let data = names
-            .into_iter()
+            .iter()
             .map(|s| (ConsecutiveTag::Author, s.to_string()))
             .collect();
         let (authors, _) = resolve_authors(data);
@@ -331,10 +331,7 @@ mod tests {
         (ConsecutiveTag::Author, "Einstein A"),
     ])]
     fn test_resolve_author_deduplication(#[case] names: &[(ConsecutiveTag, &str)]) {
-        let data = names
-            .into_iter()
-            .map(|(t, n)| (*t, n.to_string()))
-            .collect();
+        let data = names.iter().map(|(t, n)| (*t, n.to_string())).collect();
         let (authors, _) = resolve_authors(data);
         let actual: Vec<_> = authors.iter().map(|a| a.name.as_au()).collect::<Vec<_>>();
         assert_eq!(&actual, &["Bose SN", "Einstein A"]);

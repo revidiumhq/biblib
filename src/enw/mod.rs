@@ -149,7 +149,7 @@ mod tests {
         let citations = EnwParser::new().parse(input).unwrap();
         let citation = &citations[0];
         assert_eq!(citation.authors.len(), 5);
-        assert!(citation.extra_fields.get("%A").is_none());
+        assert!(!citation.extra_fields.contains_key("%A"));
         assert_eq!(
             citation.extra_fields.get("%E"),
             Some(&vec!["Doe, Jane".to_string()])
@@ -187,7 +187,7 @@ mod tests {
             citation.extra_fields.get("%S"),
             Some(&vec!["Tertiary Title".to_string()])
         );
-        assert!(citation.extra_fields.get("%J").is_none());
+        assert!(!citation.extra_fields.contains_key("%J"));
     }
 
     #[test]

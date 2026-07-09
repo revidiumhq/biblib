@@ -148,7 +148,7 @@ ER  -
 
 "#;
         let parser = RisParser::new();
-        let citations = parser.parse(&input).unwrap();
+        let citations = parser.parse(input).unwrap();
         assert_eq!(
             citations.len(),
             2,

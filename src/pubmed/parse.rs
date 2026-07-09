@@ -101,7 +101,7 @@ mod tests {
         assert_eq!(
             actual
                 .as_ref()
-                .map_either(|s| s.as_str(), |(t, s)| (t.clone(), s.as_str())),
+                .map_either(|s| s.as_str(), |(t, s)| (*t, s.as_str())),
             expected
         )
     }
