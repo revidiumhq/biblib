@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-07-09
+
+### Security
+
+- Updated the optional XML dependency `quick-xml` from `0.39.x` to `0.41.0` to address `RUSTSEC-2026-0194` and `RUSTSEC-2026-0195`, two denial-of-service vulnerabilities affecting XML parsing.
+
+### Changed
+
+- Updated the internal EndNote XML parser for `quick-xml` 0.41 compatibility. No public API changes.
+
 ## [0.7.0] - 2026-06-30
 
 ### Added
