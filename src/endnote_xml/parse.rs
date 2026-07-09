@@ -5,6 +5,7 @@
 use crate::error::{ParseError, SourceSpan, ValueError};
 use crate::{Author, Citation, CitationFormat};
 use quick_xml::Reader;
+use quick_xml::XmlVersion;
 use quick_xml::events::Event;
 use quick_xml::name::QName;
 use std::io::BufRead;
@@ -32,7 +33,7 @@ fn extract_text_with_position<B: BufRead>(
         let current_pos = reader.buffer_position() as usize;
         match reader.read_event_into(buf) {
             Ok(Event::Text(e)) => {
-                text.push_str(&e.xml_content().map_err(|e| {
+                text.push_str(&e.xml_content(XmlVersion::Explicit1_1).map_err(|e| {
                     let line_num = buffer_position_to_line_number(content, current_pos);
                     ParseError::at_line(
                         line_num,
@@ -215,7 +216,10 @@ fn parse_record<B: BufRead>(
                         })?;
                         if attr.key.as_ref() == b"name" {
                             citation.citation_type.push(
-                                attr.unescape_value()
+                                attr.decoded_and_normalized_value(
+                                    XmlVersion::Explicit1_1,
+                                    reader.decoder(),
+                                )
                                     .map_err(|e| {
                                         ParseError::at_line(
                                             attr_line,
