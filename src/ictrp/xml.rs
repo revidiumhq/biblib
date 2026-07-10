@@ -216,10 +216,8 @@ fn build_trial_citation(
 
     let title = if let Some(value) = take_first_value(&mut fields, &["Scientific_title"]) {
         value
-    } else if let Some(value) = take_first_value(&mut fields, &["Public_title"]) {
-        value
     } else {
-        String::new()
+        take_first_value(&mut fields, &["Public_title"]).unwrap_or_default()
     };
 
     let compact_date = first_value(&fields, &["Date_registration3"]);
