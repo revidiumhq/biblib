@@ -329,55 +329,27 @@ AID- 10.1016/j.example.2023.01.001 [doi]
 
     // ── Phase 4: line-number accuracy tests ─────────────────────────────────
 
-    /// A missing TI in a single-citation file must report line 1 (where PMID
+    /// Missing TI should not reject an otherwise valid PubMed record.
     /// — the first tag — appears).
     #[test]
-    fn test_missing_title_reports_line() {
+    fn test_missing_title_is_allowed() {
         let input = "PMID- 12345678\nAU  - Smith, John\n\n";
-        let err = PubMedParser::new().parse(input).unwrap_err();
-        assert_eq!(
-            err.line,
-            Some(1),
-            "error should point to line 1 (citation start)"
-        );
+        let citations = PubMedParser::new().parse(input).unwrap();
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].title, "");
+        assert_eq!(citations[0].authors.len(), 1);
     }
 
-    /// Second citation starts on line 4 (after blank-line separator).
-    /// A missing TI there must report that line.
+    /// The same permissive behavior should hold for later citations too.
     #[test]
-    fn test_missing_title_reports_second_citation_line() {
+    fn test_missing_title_is_allowed_in_second_citation() {
         // Citation 1: lines 1-2, blank on 3, Citation 2: starts on line 4.
         let input = "PMID- 1\nTI  - First\n\nPMID- 2\nAU  - Doe, J\n\n";
-        let err = PubMedParser::new().parse(input).unwrap_err();
-        assert_eq!(err.line, Some(4), "second citation starts on line 4");
-    }
-
-    /// The byte-offset span must cover the whole citation chunk, so its start
-    /// byte for the first citation is 0.
-    #[test]
-    fn test_missing_title_error_has_span() {
-        let input = "PMID- 12345678\nAU  - Smith, John\n\n";
-        let err = PubMedParser::new().parse(input).unwrap_err();
-        let span = err.span.expect("expected a byte-offset span");
-        assert_eq!(span.start, 0, "first citation span should start at byte 0");
-        assert!(span.end > span.start);
-    }
-
-    /// The span start for the second citation must be after the first citation's
-    /// bytes (i.e. > 0).
-    #[test]
-    fn test_missing_title_second_citation_span_nonzero() {
-        let first = "PMID- 1\nTI  - First\n\n";
-        let second = "PMID- 2\nAU  - Doe, J\n\n";
-        let input = format!("{}{}", first, second);
-        let err = PubMedParser::new().parse(&input).unwrap_err();
-        let span = err.span.expect("expected a byte-offset span");
-        assert!(
-            span.start >= first.len(),
-            "second citation span ({}) should start at or after byte {} (end of first)",
-            span.start,
-            first.len()
-        );
+        let citations = PubMedParser::new().parse(input).unwrap();
+        assert_eq!(citations.len(), 2);
+        assert_eq!(citations[0].title, "First");
+        assert_eq!(citations[1].title, "");
+        assert_eq!(citations[1].authors.len(), 1);
     }
 
     /// A bad date value must also carry the right line number.
@@ -396,16 +368,16 @@ AID- 10.1016/j.example.2023.01.001 [doi]
         ));
     }
 
-    /// Multiple-citation file: only the third citation is broken; the first two
-    /// must parse OK and the error's line must point into the third chunk.
+    /// Multiple-citation files should also tolerate an untitled later citation.
     #[test]
-    fn test_line_number_in_third_citation() {
+    fn test_missing_title_is_allowed_in_third_citation() {
         let input = concat!(
             "PMID- 1\nTI  - One\n\n",    // chunk 1: lines 1-2
             "PMID- 2\nTI  - Two\n\n",    // chunk 2: lines 4-5
             "PMID- 3\nAU  - Doe, J\n\n", // chunk 3: starts line 7 (missing TI)
         );
-        let err = PubMedParser::new().parse(input).unwrap_err();
-        assert_eq!(err.line, Some(7), "third citation starts on line 7");
+        let citations = PubMedParser::new().parse(input).unwrap();
+        assert_eq!(citations.len(), 3);
+        assert_eq!(citations[2].title, "");
     }
 }

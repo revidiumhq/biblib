@@ -444,45 +444,26 @@ Another Paper,Doe J,2024";
 
     // ── Phase 4: line-number accuracy tests ─────────────────────────────────
 
-    /// A missing Title field for the *second* data row (line 3) must produce
-    /// an error whose `line` field equals 3.
+    /// Missing titles should not reject later CSV rows.
     #[test]
-    fn test_missing_title_on_second_row_reports_line() {
+    fn test_missing_title_on_second_row_is_allowed() {
         // header = line 1, first data row = line 2, second data row = line 3
         let input = "Title,Author\nFirst Paper,Smith J\n,Doe J";
-        let err = CsvParser::new().parse(input).unwrap_err();
-        // The first row parses fine; the second row (line 3) is missing title.
-        assert_eq!(
-            err.line,
-            Some(3),
-            "missing title on line 3 should be reported as line 3"
-        );
+        let citations = CsvParser::new().parse(input).unwrap();
+        assert_eq!(citations.len(), 2);
+        assert_eq!(citations[0].title, "First Paper");
+        assert_eq!(citations[1].title, "");
+        assert_eq!(citations[1].authors[0].name, "Doe");
     }
 
-    /// A missing Title field on line 2 (first data row) must report line 2.
+    /// The first CSV data row should also parse without a title.
     #[test]
-    fn test_missing_title_on_first_data_row_reports_line() {
+    fn test_missing_title_on_first_data_row_is_allowed() {
         let input = "Title,Author\n,Smith J";
-        let err = CsvParser::new().parse(input).unwrap_err();
-        assert_eq!(err.line, Some(2));
-    }
-
-    /// The error's `span` must be `Some` and its start byte must be >= the
-    /// length of the header row (i.e. past the header bytes).
-    #[test]
-    fn test_missing_title_error_has_span() {
-        let header = "Title,Author\n";
-        let input = format!("{},Smith J", header);
-        let err = CsvParser::new().parse(&input).unwrap_err();
-        let span = err.span.expect("expected a byte-offset span on CSV error");
-        // The span start should point into the first data row, which begins
-        // after the header row.
-        assert!(
-            span.start >= header.len().saturating_sub(1),
-            "span.start ({}) should be at or near the start of the data row (header is {} bytes)",
-            span.start,
-            header.len()
-        );
+        let citations = CsvParser::new().parse(input).unwrap();
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].title, "");
+        assert_eq!(citations[0].authors[0].name, "Smith");
     }
 
     /// Verify that line numbers increase correctly across multiple rows.

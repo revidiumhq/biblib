@@ -3,7 +3,7 @@
 //! This module defines intermediate data structures used during CSV parsing.
 
 use crate::csv::config::CsvConfig;
-use crate::error::{ParseError, SourceSpan, ValueError, fields};
+use crate::error::{ParseError, ValueError};
 use crate::{Author, CitationFormat};
 use csv::StringRecord;
 use std::collections::HashMap;
@@ -139,17 +139,7 @@ impl RawCsvData {
         self,
         config: &CsvConfig,
     ) -> Result<crate::Citation, crate::error::CitationError> {
-        let title = self.get_field("title").cloned().ok_or_else(|| {
-            ParseError::at_line(
-                self.line_number,
-                CitationFormat::Csv,
-                ValueError::MissingValue {
-                    field: fields::TITLE,
-                    key: "title",
-                },
-            )
-            .with_span(SourceSpan::new(self.byte_offset, self.byte_offset))
-        })?;
+        let title = self.get_field("title").cloned().unwrap_or_default();
 
         let journal = self.get_field("journal").cloned();
         let journal_abbr = self.get_field("journal_abbr").cloned();
@@ -371,16 +361,15 @@ mod tests {
     }
 
     #[test]
-    fn test_missing_title_error() {
+    fn test_missing_title_is_allowed() {
         let headers = vec!["Author".to_string()];
         let record = create_test_record(&["Smith, John"]);
         let config = CsvConfig::new();
 
         let raw = RawCsvData::from_record(&headers, &record, &config, 1, 0, &CitationFormat::Csv)
             .unwrap();
-        let result: Result<crate::Citation, _> = raw.try_into();
-
-        // The error is now converted through the legacy bridge
-        assert!(result.is_err());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.title, "");
+        assert_eq!(citation.authors.len(), 1);
     }
 }

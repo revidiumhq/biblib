@@ -47,17 +47,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
                 .remove(&PubmedTag::Title)
                 .or_else(|| data.remove(&PubmedTag::BookTitle))
                 .and_then(join_if_some)
-                .ok_or_else(|| {
-                    ParseError::at_line(
-                        start_line,
-                        CitationFormat::PubMed,
-                        ValueError::MissingValue {
-                            field: fields::TITLE,
-                            key: "TI",
-                        },
-                    )
-                    .with_span(record_span.clone())
-                })?,
+                .unwrap_or_default(),
             authors: authors.into_iter().map(|a| a.into()).collect(),
             journal: data
                 .remove(&PubmedTag::FullJournalTitle)

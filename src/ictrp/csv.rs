@@ -117,17 +117,7 @@ impl RawCsvData {
                     .clone()
                     .filter(|value| !value.trim().is_empty())
             })
-            .ok_or_else(|| {
-                ParseError::at_line(
-                    self.line_number,
-                    CitationFormat::IctrpCsv,
-                    ValueError::MissingValue {
-                        field: fields::TITLE,
-                        key: "Scientific title/Public title",
-                    },
-                )
-                .with_span(SourceSpan::new(self.byte_offset, self.byte_offset))
-            })?;
+            .unwrap_or_default();
 
         let date = self
             .fields
@@ -242,6 +232,18 @@ mod tests {
         let citation = IctrpCsvParser::new().parse(input).unwrap().remove(0);
         assert_eq!(citation.title, "Public title");
         assert_eq!(citation.citation_type, vec!["Clinical Trial"]);
+    }
+
+    #[test]
+    fn test_parse_ictrp_missing_title_is_allowed() {
+        let input = concat!(
+            "TrialID,Public title,Scientific title,Date registration,Source Register\n",
+            "NCT00000002,,,01/05/2026,ClinicalTrials.gov\n"
+        );
+
+        let citation = IctrpCsvParser::new().parse(input).unwrap().remove(0);
+        assert_eq!(citation.accession_number.as_deref(), Some("NCT00000002"));
+        assert_eq!(citation.title, "");
     }
 
     #[test]

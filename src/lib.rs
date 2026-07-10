@@ -145,13 +145,13 @@
 //! spans.
 //!
 //! ```rust
-//! use biblib::{CitationParser, RisParser, ValueError};
+//! use biblib::{CitationParser, PubMedParser, ValueError};
 //!
-//! let input = "TY  - JOUR\nAU  - Smith, John\nER  -\n";
-//! let err = RisParser::new().parse(input).unwrap_err();
+//! let input = "PMID- 1\nTI  - Title\nDP  - not-a-date\n\n";
+//! let err = PubMedParser::new().parse(input).unwrap_err();
 //!
 //! assert_eq!(err.line, Some(1));
-//! assert!(matches!(err.error, ValueError::MissingValue { key: "TI", .. }));
+//! assert!(matches!(err.error, ValueError::BadValue { .. }));
 //! ```
 
 use serde::{Deserialize, Serialize};

@@ -219,15 +219,7 @@ fn build_trial_citation(
     } else if let Some(value) = take_first_value(&mut fields, &["Public_title"]) {
         value
     } else {
-        return Err(trial_error(
-            content,
-            start_pos,
-            end_pos,
-            ValueError::MissingValue {
-                field: fields::TITLE,
-                key: "Scientific_title/Public_title",
-            },
-        ));
+        String::new()
     };
 
     let compact_date = first_value(&fields, &["Date_registration3"]);
@@ -612,6 +604,23 @@ mod tests {
         let citation = IctrpXmlParser::new().parse(input).unwrap().remove(0);
         assert_eq!(citation.title, "Public title");
         assert!(!citation.extra_fields.contains_key("Public_title"));
+    }
+
+    #[test]
+    fn test_parse_ictrp_xml_missing_title_is_allowed() {
+        let input = r#"<?xml version='1.0' encoding='UTF-8' ?>
+<Trials_downloaded_from_ICTRP>
+  <Trial>
+    <TrialID>NCT00000002</TrialID>
+    <Scientific_title/>
+    <Public_title/>
+    <Date_registration>01/05/2026</Date_registration>
+  </Trial>
+</Trials_downloaded_from_ICTRP>"#;
+
+        let citation = IctrpXmlParser::new().parse(input).unwrap().remove(0);
+        assert_eq!(citation.accession_number.as_deref(), Some("NCT00000002"));
+        assert_eq!(citation.title, "");
     }
 
     #[test]

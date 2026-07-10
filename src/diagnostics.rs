@@ -12,12 +12,12 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use biblib::{CitationParser, RisParser};
+//! use biblib::{CitationParser, PubMedParser};
 //!
-//! let source = "TY  - JOUR\nAU  - Smith, John\nER  -";
-//! match RisParser::new().parse(source) {
+//! let source = "PMID- 123\nTI  - Example\nDP  - not-a-date\n\n";
+//! match PubMedParser::new().parse(source) {
 //!     Ok(citations) => println!("Parsed {} citations", citations.len()),
-//!     Err(e) => eprintln!("{}", e.to_diagnostic("input.ris", source)),
+//!     Err(e) => eprintln!("{}", e.to_diagnostic("input.nbib", source)),
 //! }
 //! ```
 
@@ -194,28 +194,19 @@ mod tests {
     // ── Integration tests: use actual parsers ────────────────────────────────
 
     #[test]
-    fn test_ris_missing_title_diagnostic() {
+    fn test_ris_ignored_invalid_line_no_diagnostic() {
         use crate::{RisParser, parse_with_diagnostics};
-        let source = "TY  - JOUR\nAU  - Smith, John\nER  -\n";
+        let source = "TY  - JOUR\n!!  - bad\nER  -\n";
         let result = parse_with_diagnostics(&RisParser::new(), source, "input.ris");
-        assert!(result.is_err(), "should fail: no title");
-        let diag = result.unwrap_err();
-        assert!(
-            diag.contains("input.ris"),
-            "filename should appear in output"
-        );
-        // The underlying error message includes "TI" — verify it surfaces
-        assert!(
-            diag.contains("TI"),
-            "missing-field key 'TI' should appear in output"
-        );
-        assert!(!diag.is_empty());
+        assert!(result.is_ok(), "ignored RIS junk should not fail parsing");
+        let citations = result.unwrap();
+        assert_eq!(citations.len(), 1);
     }
 
     #[test]
-    fn test_pubmed_missing_title_diagnostic() {
+    fn test_pubmed_bad_date_diagnostic() {
         use crate::{PubMedParser, parse_with_diagnostics};
-        let source = "PMID- 123\nAU  - Smith J\n\n";
+        let source = "PMID- 123\nTI  - Example\nDP  - not-a-date\n\n";
         let result = parse_with_diagnostics(&PubMedParser::new(), source, "refs.nbib");
         assert!(result.is_err());
         let diag = result.unwrap_err();
@@ -223,9 +214,9 @@ mod tests {
     }
 
     #[test]
-    fn test_csv_missing_title_diagnostic() {
+    fn test_csv_shape_error_diagnostic() {
         use crate::{csv::CsvParser, parse_with_diagnostics};
-        let source = "Title,Author\n,Smith J";
+        let source = "Title,Author\nA,B,C";
         let result = parse_with_diagnostics(&CsvParser::new(), source, "refs.csv");
         assert!(result.is_err());
         let diag = result.unwrap_err();
@@ -245,11 +236,11 @@ mod tests {
     /// Output must contain the message from the underlying error.
     #[test]
     fn test_diagnostic_contains_format_name() {
-        use crate::{RisParser, parse_with_diagnostics};
-        let source = "TY  - JOUR\nAU  - Smith\nER  -\n";
-        let diag = parse_with_diagnostics(&RisParser::new(), source, "x.ris").unwrap_err();
+        use crate::{PubMedParser, parse_with_diagnostics};
+        let source = "PMID- 123\nTI  - Example\nDP  - not-a-date\n\n";
+        let diag = parse_with_diagnostics(&PubMedParser::new(), source, "x.nbib").unwrap_err();
         assert!(
-            diag.contains("RIS"),
+            diag.contains("PubMed"),
             "format name should appear in the diagnostic"
         );
     }
