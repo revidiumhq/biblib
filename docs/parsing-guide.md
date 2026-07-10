@@ -24,7 +24,7 @@ RIS (Research Information Systems) uses two-letter tags to identify fields. Each
 | Tag | Field | Notes |
 |-----|-------|-------|
 | TY | Citation type | Required, marks start of record |
-| TI, T1 | Title | TI takes priority over T1 |
+| TI, T1, ST | Title | Priority: `TI`, then `T1`, then `ST` |
 | AU, A1-A4 | Authors | All treated as authors; multi-author lines supported |
 | JF | Journal (full) | Priority 1 for journal name |
 | T2 | Secondary title | Priority 2 for journal name |
@@ -93,6 +93,11 @@ Pages are formatted consistently:
 
 ---
 
+### Validation
+
+- Missing title alone does not invalidate a RIS record.
+- If `TI`, `T1`, and `ST` are all absent, parsing still succeeds and `citation.title` is left empty.
+
 ## PubMed/MEDLINE Format
 
 PubMed format uses multi-character tags with continuation lines for long values.
@@ -150,6 +155,11 @@ LID - 10.1234/example [doi]
 ```
 
 ---
+
+### Validation
+
+- Missing `TI` alone does not invalidate an otherwise usable PubMed record.
+- When no title is present, parsing still succeeds and `citation.title` is left empty.
 
 ## EndNote XML Format
 
@@ -336,6 +346,11 @@ Results in 3 separate authors.
 
 ---
 
+### Validation
+
+- Missing `title` alone does not invalidate a CSV row.
+- Rows that otherwise parse successfully still produce a citation with an empty `title`.
+
 ## ICTRP XML Format
 
 `IctrpXmlParser` is the preferred parser for WHO ICTRP exports. It exists to
@@ -368,6 +383,8 @@ normalization rules wherever the XML and CSV exports overlap.
   author lists.
 - `TrialID` is required. Missing `TrialID` is a hard parse error.
 - `Scientific_title` is preferred. `Public_title` is only a fallback.
+- If both `Scientific_title` and `Public_title` are absent, parsing still succeeds
+  and `citation.title` is left empty.
 - Dates accept the ICTRP formats seen in the XML exports:
   - `YYYYMMDD`
   - `DD/MM/YYYY`
@@ -467,6 +484,8 @@ same core `Citation` data where the source fields overlap.
 - `authors` stays empty here for the same reason as XML.
 - Remaining non-empty ICTRP CSV columns are preserved in `extra_fields`.
 - CSV auto-detection remains enabled for backward compatibility.
+- If both `Scientific title` and `Public title` are absent, parsing still
+  succeeds and `citation.title` is left empty.
 - XML should be preferred for new pipelines because malformed ICTRP CSV exports
   can still contain row-shape issues that do not exist in the XML release.
 

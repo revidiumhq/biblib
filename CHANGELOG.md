@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-07-10
+
+### Changed
+
+- **Permissive missing-title handling across importers**: RIS, PubMed/MEDLINE, generic CSV, and ICTRP CSV/XML no longer reject records solely because the title field is absent. When the rest of the record is usable, parsing now succeeds and `citation.title` is left empty.
+- **RIS title fallback expanded**: RIS title extraction now prefers `TI`, then `T1`, then `ST` (short title) before falling back to an empty title.
+- **RIS parser hardening**: The RIS parser now safely handles BOM-prefixed input, UTF-8 continuation text, and continuation lines without indentation. Invalid fake-tag lines are ignored instead of being misclassified as real metadata or appended to the previous field.
+
+### Documentation
+
+- **Release-facing docs aligned**: README, crate docs, diagnostics examples, and the parsing guide now document the relaxed missing-title policy and current RIS behavior.
+
 ## [0.7.1] - 2026-07-09
 
 ### Security

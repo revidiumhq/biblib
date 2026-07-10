@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! biblib = { version = "0.3", features = ["diagnostics"] }
+//! biblib = { version = "0.7", features = ["diagnostics"] }
 //! ```
 //!
 //! # Example

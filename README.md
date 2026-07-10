@@ -291,15 +291,15 @@ All parsers return `ParseError` on malformed input. Errors carry:
 Example:
 
 ```rust
-use biblib::{CitationParser, RisParser, ValueError};
+use biblib::{CitationParser, PubMedParser, ValueError};
 
-let input = "TY  - JOUR\nAU  - Smith, John\nER  -\n";
+let input = "PMID- 1\nTI  - Example\nDP  - not-a-date\n\n";
 
-match RisParser::new().parse(input) {
+match PubMedParser::new().parse(input) {
     Ok(_) => unreachable!("expected a parse error"),
     Err(err) => {
         assert_eq!(err.line, Some(1));
-        assert!(matches!(err.error, ValueError::MissingValue { key: "TI", .. }));
+        assert!(matches!(err.error, ValueError::BadValue { .. }));
     }
 }
 ```
