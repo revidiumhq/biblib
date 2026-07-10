@@ -18,6 +18,8 @@ pub enum RisTag {
     Title,
     /// T1 - Primary title (alternative)
     TitleAlternative,
+    /// ST - Short title
+    ShortTitle,
     /// AU - Author
     Author,
     /// A1 - Primary author
@@ -99,6 +101,7 @@ impl RisTag {
             "TY" => RisTag::Type,
             "TI" => RisTag::Title,
             "T1" => RisTag::TitleAlternative,
+            "ST" => RisTag::ShortTitle,
             "AU" => RisTag::Author,
             "A1" => RisTag::AuthorPrimary,
             "A2" => RisTag::AuthorSecondary,
@@ -144,6 +147,7 @@ impl RisTag {
             RisTag::Type => "TY",
             RisTag::Title => "TI",
             RisTag::TitleAlternative => "T1",
+            RisTag::ShortTitle => "ST",
             RisTag::Author => "AU",
             RisTag::AuthorPrimary => "A1",
             RisTag::AuthorSecondary => "A2",
@@ -234,6 +238,7 @@ mod tests {
     #[rstest]
     #[case("TY", RisTag::Type)]
     #[case("TI", RisTag::Title)]
+    #[case("ST", RisTag::ShortTitle)]
     #[case("AU", RisTag::Author)]
     #[case("JF", RisTag::JournalFull)]
     #[case("AN", RisTag::AccessionNumber)]
@@ -246,6 +251,7 @@ mod tests {
     #[rstest]
     #[case(RisTag::Type, "TY")]
     #[case(RisTag::Title, "TI")]
+    #[case(RisTag::ShortTitle, "ST")]
     #[case(RisTag::Author, "AU")]
     #[case(RisTag::Unknown("TEST".to_string()), "TEST")]
     fn test_as_tag(#[case] input: RisTag, #[case] expected: &str) {
