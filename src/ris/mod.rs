@@ -14,7 +14,7 @@
 //! ER  -"#;
 //!
 //! let parser = RisParser::new();
-//!     
+//!
 //! let citations = parser.parse(input).unwrap();
 //! assert_eq!(citations[0].title, "Example Title");
 //! ```
@@ -211,20 +211,17 @@ ER  -"#;
         );
     }
 
-    // ── Phase 4: line-number accuracy tests ─────────────────────────────────
-
-    /// Missing TI in the very first citation (TY on line 1) must report line 1.
     #[test]
-    fn test_missing_title_reports_first_citation_line() {
+    fn test_missing_title_is_allowed_in_first_citation() {
         let input = "TY  - JOUR\nAU  - Smith, John\nER  -\n";
-        let err = RisParser::new().parse(input).unwrap_err();
-        assert_eq!(err.line, Some(1), "expected line 1 (TY tag line)");
+        let citations = RisParser::new().parse(input).unwrap();
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].title, "");
+        assert_eq!(citations[0].authors.len(), 1);
     }
 
-    /// Missing TI in the *second* citation — TY starts on line 6 — must
-    /// report that line, not line 1.
     #[test]
-    fn test_missing_title_reports_second_citation_line() {
+    fn test_missing_title_is_allowed_in_second_citation() {
         let input = concat!(
             "TY  - JOUR\n",   // line 1
             "TI  - First\n",  // line 2
@@ -234,43 +231,13 @@ ER  -"#;
             "AU  - Doe, J\n", // line 6
             "ER  -\n",        // line 7
         );
-        let err = RisParser::new().parse(input).unwrap_err();
-        assert_eq!(err.line, Some(5), "expected line 5 (second TY tag)");
+        let citations = RisParser::new().parse(input).unwrap();
+        assert_eq!(citations.len(), 2);
+        assert_eq!(citations[0].title, "First");
+        assert_eq!(citations[1].title, "");
+        assert_eq!(citations[1].authors[0].name, "Doe");
     }
 
-    /// The byte-offset span on a missing-title error must start at the byte
-    /// offset of the TY line (i.e. byte 0 for the first citation).
-    #[test]
-    fn test_missing_title_error_has_span() {
-        let input = "TY  - JOUR\nAU  - Smith, John\nER  -\n";
-        let err = RisParser::new().parse(input).unwrap_err();
-        let span = err.span.expect("expected a byte-offset span");
-        assert_eq!(
-            span.start, 0,
-            "span should start at byte 0 (TY on first line)"
-        );
-        assert!(span.end > span.start, "span end must be after start");
-    }
-
-    /// `record_span` for the second citation must begin *after* the first
-    /// citation ends — i.e. its start byte must be > 0.
-    #[test]
-    fn test_missing_title_second_citation_span_nonzero() {
-        let first = "TY  - JOUR\nTI  - First\nER  -\n\n";
-        let second = "TY  - JOUR\nAU  - Doe, J\nER  -\n";
-        let input = format!("{}{}", first, second);
-
-        let err = RisParser::new().parse(&input).unwrap_err();
-        let span = err.span.expect("expected a byte-offset span");
-        assert!(
-            span.start >= first.len(),
-            "second citation span ({}) should start at or after byte {} (end of first citation)",
-            span.start,
-            first.len()
-        );
-    }
-
-    /// Line numbers for syntax errors (bad tag characters) must be accurate.
     #[test]
     fn test_m3_included_in_citation_type() {
         let input = "TY  - JOUR\nTI  - Test\nM3  - Randomized Controlled Trial\nER  -\n";
@@ -367,8 +334,6 @@ ER  -"#;
 
     #[test]
     fn test_syntax_error_line_accuracy() {
-        // !! on line 3 is invalid; the line is captured in ignored_lines.
-        // We verify through the raw parser (crate-internal path).
         use super::parse::ris_parse;
         let input = "TY  - JOUR\nTI  - Title\n!!  - bad\nER  -\n";
         let raw = ris_parse(input).unwrap();

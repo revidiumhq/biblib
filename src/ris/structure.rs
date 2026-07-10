@@ -126,7 +126,7 @@ impl TryFrom<RawRisData> for crate::Citation {
                 }
             }
         }
-        let title = Self::extract_title(&mut raw)?;
+        let title = Self::extract_title(&mut raw);
         let (journal, journal_abbr) = Self::extract_journal_info(&mut raw);
         let date = Self::extract_date(&mut raw);
         let (volume, issue, pages) = Self::extract_publication_details(&mut raw);
@@ -166,10 +166,11 @@ impl TryFrom<RawRisData> for crate::Citation {
 }
 
 impl crate::Citation {
-    /// Extract title from RIS data, trying primary title first, then alternative.
-    fn extract_title(raw: &mut RawRisData) -> Result<String, crate::error::ParseError> {
-        let start_line = raw.start_line;
-        let record_span = raw.record_span.clone();
+    /// Extract title from RIS data, trying primary title first, then alternative fallbacks.
+    ///
+    /// RIS exports in the wild can omit a dedicated title tag entirely. In that case
+    /// we preserve the record and return an empty title instead of rejecting it.
+    fn extract_title(raw: &mut RawRisData) -> String {
         let title = raw
             .get_first(&RisTag::Title)
             .filter(|s| !s.trim().is_empty())
@@ -177,29 +178,19 @@ impl crate::Citation {
                 raw.get_first(&RisTag::TitleAlternative)
                     .filter(|s| !s.trim().is_empty())
             })
+            .or_else(|| {
+                raw.get_first(&RisTag::ShortTitle)
+                    .filter(|s| !s.trim().is_empty())
+            })
             .cloned()
-            .ok_or_else(|| {
-                let err = crate::error::ParseError::new(
-                    start_line,
-                    None,
-                    crate::CitationFormat::Ris,
-                    crate::error::ValueError::MissingValue {
-                        field: crate::error::fields::TITLE,
-                        key: "TI",
-                    },
-                );
-                if let Some(span) = record_span {
-                    err.with_span(span)
-                } else {
-                    err
-                }
-            })?;
+            .unwrap_or_default();
 
         // Remove title data after extraction
         raw.remove(&RisTag::Title);
         raw.remove(&RisTag::TitleAlternative);
+        raw.remove(&RisTag::ShortTitle);
 
-        Ok(title)
+        title
     }
 
     /// Extract journal information using priority-based selection.
@@ -474,10 +465,12 @@ mod tests {
     }
 
     #[test]
-    fn test_missing_title_error() {
-        let raw = RawRisData::new();
-        let result: Result<crate::Citation, _> = raw.try_into();
-        assert!(matches!(result, Err(_parse_err)));
+    fn test_missing_title_is_allowed() {
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::Type, "JOUR".to_string());
+
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.title, "");
     }
 
     #[test]
@@ -540,6 +533,14 @@ mod tests {
 
         let citation3: crate::Citation = raw3.try_into().unwrap();
         assert_eq!(citation3.title, "Fallback Title");
+
+        // Test fallback works when TI/T1 are absent but ST is present
+        let mut raw4 = RawRisData::new();
+        raw4.add_data(RisTag::Type, "JOUR".to_string());
+        raw4.add_data(RisTag::ShortTitle, "Short Title Fallback".to_string());
+
+        let citation4: crate::Citation = raw4.try_into().unwrap();
+        assert_eq!(citation4.title, "Short Title Fallback");
     }
 
     #[test]
