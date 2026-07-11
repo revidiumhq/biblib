@@ -123,7 +123,7 @@ let _ = deduplicator;
 | `year_tolerance` | `1` | Cross-year matching window for fuzzy matching |
 | `parallel` | `false` | Evaluate pass-2 blocks with Rayon |
 | `source_preferences` | `[]` | Source priority for choosing `unique` |
-| `doi_title_threshold` | `0.85` | Stored builder threshold for DOI-title matching configuration |
+| `doi_title_threshold` | `0.85` | Fuzzy threshold when both records have DOIs |
 | `no_doi_title_threshold` | `0.93` | Fuzzy threshold when at least one DOI is missing |
 | `exact_title_threshold` | `0.99` | High-confidence title threshold |
 
@@ -183,7 +183,7 @@ records are placed into year-based blocks derived from `year_tolerance`.
 | Condition | Required |
 | --- | --- |
 | Similarity algorithm | `jaro` |
-| Title similarity | `>= exact_title_threshold` |
+| Title similarity | `>= doi_title_threshold` |
 | Year compatibility | Yes |
 | Volume or page match | Yes |
 | Journal or ISSN match | Yes |

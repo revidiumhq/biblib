@@ -1,4 +1,4 @@
-//! Citations deduplicator implementation.
+﻿//! Citations deduplicator implementation.
 //!
 //! The deduplicator works on slices of [`Citation`] values and returns
 //! deterministic, index-based duplicate groups.
@@ -126,7 +126,7 @@
 //! | Condition | Required |
 //! | --- | --- |
 //! | Similarity algorithm | `jaro` |
-//! | Title similarity | `>= exact_title_threshold` |
+//! | Title similarity | `>= doi_title_threshold` |
 //! | Year compatibility | Yes |
 //! | Volume or page match | Yes |
 //! | Journal or ISSN match | Yes |
@@ -176,7 +176,7 @@ use strsim::jaro;
 use strsim::jaro_winkler;
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
-const DOI_TITLE_SIMILARITY_THRESHOLD: f64 = 0.85;
+const DEFAULT_BOTH_DOI_TITLE_THRESHOLD: f64 = 0.85;
 const NO_DOI_TITLE_SIMILARITY_THRESHOLD: f64 = 0.93;
 const PASS1_DOI_TITLE_SANITY: f64 = 0.70;
 const AUTHOR_GUARD_THRESHOLD: f64 = 0.96;
@@ -184,7 +184,7 @@ const AUTHOR_GUARD_THRESHOLD: f64 = 0.96;
 static UNICODE_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<U\+([0-9A-Fa-f]+)>").unwrap());
 
-const HTML_REPLACEMENTS: [(&str, &str); 11] = [
+const HTML_REPLACEMENTS: [(&str, &str); 12] = [
     ("&lt;", "<"),
     ("&gt;", ">"),
     ("<sup>", ""),
@@ -193,9 +193,10 @@ const HTML_REPLACEMENTS: [(&str, &str); 11] = [
     ("</sub>", ""),
     ("<inf>", ""),
     ("</inf>", ""),
-    ("α", "a"),
-    ("ß", "b"),
-    ("γ", "g"),
+    ("\u{03B2}", "b"),
+    ("\u{03B1}", "a"),
+    ("\u{00DF}", "b"),
+    ("\u{03B3}", "g"),
 ];
 
 /// Represents a group of duplicate citations using indices into the input slice.
@@ -229,24 +230,17 @@ pub struct DeduplicatorBuilder {
 
 /// Core deduplication engine for finding duplicate citations.
 ///
-/// The deduplicator uses a sophisticated algorithm to identify duplicate citations
-/// based on multiple criteria including DOIs, titles, and other metadata. It supports
-/// both exact and fuzzy matching with configurable thresholds.
+/// `Deduplicator` runs a two-pass union-find algorithm:
 ///
-/// # Algorithm
+/// 1. Pass 1 clusters records with the same normalized DOI using a fixed
+///    sanity threshold or metadata fallback for empty titles.
+/// 2. Pass 2 performs blocked fuzzy matching across year-derived groups using
+///    the builder's configured thresholds.
 ///
-/// Citations are considered duplicates based on these criteria:
+/// See the module-level documentation for the full matching criteria,
+/// normalization rules, and determinism guarantees.
 ///
-/// 1. **With DOIs**:
-///    - Matching DOIs and high title similarity (≥ 0.85)
-///    - Matching journal names or ISSNs
-///
-/// 2. **Without DOIs**:
-///    - Very high title similarity (≥ 0.93)
-///    - Matching volume/pages
-///    - Matching journal names/ISSNs
-///
-/// # Examples
+/// # Example
 ///
 /// ```
 /// use biblib::dedupe::Deduplicator;
@@ -257,11 +251,6 @@ pub struct DeduplicatorBuilder {
 ///     .build();
 /// ```
 ///
-/// # Performance
-///
-/// - Time complexity: O(n²) without year grouping
-/// - With year grouping: O(Σ n_y²) where n_y is citations per year
-/// - Parallel processing available when using year grouping
 #[derive(Debug, Clone)]
 pub struct Deduplicator {
     year_tolerance: u8,
@@ -304,7 +293,7 @@ impl Default for DeduplicatorBuilder {
             year_tolerance: 1,
             parallel: false,
             source_preferences: Vec::new(),
-            doi_title_threshold: DOI_TITLE_SIMILARITY_THRESHOLD,
+            doi_title_threshold: DEFAULT_BOTH_DOI_TITLE_THRESHOLD,
             no_doi_title_threshold: NO_DOI_TITLE_SIMILARITY_THRESHOLD,
             exact_title_threshold: 0.99,
         }
@@ -485,8 +474,6 @@ impl Deduplicator {
         citations: &[Citation],
         sources: &[&str],
     ) -> Vec<DuplicateGroup> {
-        debug_assert!((0.0..=1.0).contains(&self.doi_title_threshold));
-
         if citations.is_empty() {
             return Vec::new();
         }
@@ -657,7 +644,7 @@ impl Deduplicator {
             members.dedup();
             if members.len() > 1 {
                 // TODO: sorted-token fingerprint sub-blocking for very large year blocks.
-                // The unknown-year block is compared against every year block: O(u × n) if a
+                // The unknown-year block is compared against every year block: O(u x n) if a
                 // source systematically lacks dates.
                 tasks.push(BlockTask::Within(members.clone()));
             }
@@ -749,7 +736,7 @@ impl Deduplicator {
                     return false;
                 }
 
-                sim >= self.exact_title_threshold
+                sim >= self.doi_title_threshold
                     && year_compatible
                     && (volume_match || page_match)
                     && (journal_match || issn_match)
@@ -900,7 +887,6 @@ impl Deduplicator {
         for (needle, replacement) in HTML_REPLACEMENTS {
             normalized = normalized.replace(needle, replacement);
         }
-        normalized = normalized.replace("β", "b");
 
         normalized
             .nfkd()
@@ -1367,14 +1353,14 @@ mod tests {
         // Test basic conversion
         assert_eq!(
             Deduplicator::convert_unicode_string("2<U+0391>-amino-4<U+0391>"),
-            "2Α-amino-4Α",
+            "2\u{0391}-amino-4\u{0391}",
             "Failed to convert basic Alpha Unicode sequences"
         );
 
         // Test multiple different Unicode sequences
         assert_eq!(
             Deduplicator::convert_unicode_string("Hello <U+03A9>orld <U+03A3>cience"),
-            "Hello Ωorld Σcience",
+            "Hello \u{03A9}orld \u{03A3}cience",
             "Failed to convert multiple Unicode sequences"
         );
 
@@ -1395,14 +1381,14 @@ mod tests {
         // Test mixed content
         assert_eq!(
             Deduplicator::convert_unicode_string("Mixed <U+0394> Unicode <U+03A9> Test"),
-            "Mixed Δ Unicode Ω Test",
+            "Mixed \u{0394} Unicode \u{03A9} Test",
             "Failed to handle mixed content with Unicode sequences"
         );
 
         // Test consecutive Unicode sequences
         assert_eq!(
             Deduplicator::convert_unicode_string("<U+0391><U+0392><U+0393>"),
-            "ΑΒΓ",
+            "\u{0391}\u{0392}\u{0393}",
             "Failed to convert consecutive Unicode sequences"
         );
     }
@@ -1520,6 +1506,17 @@ mod tests {
     }
 
     #[test]
+    fn test_format_issn_rejects_x_in_non_final_position() {
+        assert_eq!(Deduplicator::format_issn("123X-5678"), None);
+        assert_eq!(Deduplicator::format_issn("X234-5678"), None);
+        assert_eq!(Deduplicator::format_issn("1234-5X78"), None);
+        assert_eq!(
+            Deduplicator::format_issn("1234-567X"),
+            Some("1234-567X".to_string())
+        );
+    }
+
+    #[test]
     fn test_year_tolerance_zero_disables_cross_year_no_doi_matches() {
         let citations = vec![
             Citation {
@@ -1561,6 +1558,34 @@ mod tests {
 
         assert_eq!(duplicate_groups.len(), 2);
         assert!(duplicate_groups.iter().all(|g| g.duplicates.is_empty()));
+    }
+
+    #[test]
+    fn test_unknown_year_matches_known_year_end_to_end() {
+        let citations = vec![
+            make_citation(
+                "Yearless cross block",
+                None,
+                Some("Journal"),
+                Some("6"),
+                None,
+                None,
+            ),
+            make_citation(
+                "Yearless cross block",
+                Some(2020),
+                Some("Journal"),
+                Some("6"),
+                None,
+                None,
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].unique, 0);
+        assert_eq!(groups[0].duplicates, vec![1]);
     }
 
     #[test]
@@ -2097,6 +2122,79 @@ mod tests {
 
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
+    fn test_pass1_empty_titles_without_metadata_agreement_stay_separate() {
+        let citations = vec![
+            make_citation(
+                "",
+                Some(2020),
+                Some("Journal A"),
+                Some("1"),
+                Some("10-20"),
+                Some("10.1000/meta"),
+            ),
+            make_citation(
+                "",
+                Some(2021),
+                Some("Journal B"),
+                Some("2"),
+                Some("30-40"),
+                Some("10.1000/meta"),
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.duplicates.is_empty()));
+    }
+
+    #[test]
+    fn test_doi_title_threshold_controls_both_doi_matching() {
+        let citations = vec![
+            make_citation(
+                "Renal biomarker observational study",
+                Some(2020),
+                Some("Journal"),
+                Some("7"),
+                Some("100-110"),
+                Some("10.1000/left"),
+            ),
+            make_citation(
+                "Observational renal biomarker study",
+                Some(2020),
+                Some("Journal"),
+                Some("7"),
+                Some("100-110"),
+                Some("10.1000/right"),
+            ),
+        ];
+
+        let sim = strsim::jaro(
+            &Deduplicator::normalize_string(&citations[0].title),
+            &Deduplicator::normalize_string(&citations[1].title),
+        );
+        assert!(
+            sim >= DEFAULT_BOTH_DOI_TITLE_THRESHOLD && sim < 0.99,
+            "unexpected doi-title sim {sim}"
+        );
+
+        let default_groups = Deduplicator::new().find_duplicates(&citations);
+        assert_eq!(default_groups.len(), 1);
+        assert_eq!(default_groups[0].duplicates, vec![1]);
+
+        let strict_groups = Deduplicator::builder()
+            .doi_title_threshold(0.99)
+            .build()
+            .find_duplicates(&citations);
+        assert_eq!(strict_groups.len(), 2);
+        assert!(
+            strict_groups
+                .iter()
+                .all(|group| group.duplicates.is_empty())
+        );
     }
 
     #[test]
