@@ -1,228 +1,294 @@
 # Deduplication Guide
 
-This guide documents the deduplication algorithm, matching criteria, configuration options, and performance characteristics in `biblib`.
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Matching Algorithm](#matching-algorithm)
-- [Configuration](#configuration)
-- [Normalization](#normalization)
-- [Performance](#performance)
-- [Source Preferences](#source-preferences)
-
----
+This guide describes the deduplication API in `biblib 0.8`, how the matching
+engine works, and what changed from the 0.7 series.
 
 ## Overview
 
-The deduplicator identifies duplicate citations by comparing multiple fields using fuzzy string matching and exact field comparisons. It groups duplicates together and selects one "unique" citation from each group.
+The deduplicator works on slices of [`Citation`] values and returns
+index-based duplicate groups. Every input index appears exactly once in the
+output. Duplicate groups are deterministic:
 
-### Basic Usage
+- Groups are sorted by their smallest member index.
+- Each group's `duplicates` vector is sorted ascending.
+- Singletons are kept as groups with an empty `duplicates` list.
+
+## Basic Usage
 
 ```rust
-use biblib::dedupe::{Deduplicator, DeduplicatorConfig};
+use biblib::dedupe::Deduplicator;
+use biblib::{Citation, Date};
 
-let config = DeduplicatorConfig {
-    group_by_year: true,
-    run_in_parallel: true,
-    source_preferences: vec!["PubMed".to_string()],
-};
+let citations = vec![
+    Citation {
+        title: "Example Title".to_string(),
+        doi: Some("10.1000/example".to_string()),
+        date: Some(Date {
+            year: 2023,
+            month: None,
+            day: None,
+        }),
+        journal: Some("Example Journal".to_string()),
+        ..Default::default()
+    },
+    Citation {
+        title: "Example Title".to_string(),
+        doi: Some("10.1000/example".to_string()),
+        date: Some(Date {
+            year: 2023,
+            month: None,
+            day: None,
+        }),
+        journal: Some("Example Journal".to_string()),
+        ..Default::default()
+    },
+];
 
-let deduplicator = Deduplicator::new().with_config(config);
-let groups = deduplicator.find_duplicates(&citations).unwrap();
+let groups = Deduplicator::new().find_duplicates(&citations);
+
+assert_eq!(groups.len(), 1);
+assert_eq!(groups[0].unique, 0);
+assert_eq!(groups[0].duplicates, vec![1]);
 ```
 
----
+## Source-Aware Deduplication
 
-## Matching Algorithm
+`find_duplicates_with_sources()` accepts a parallel slice of source names. If
+`sources` is shorter than `citations`, the trailing citations are treated as
+having no source. If `sources` is longer, the extra entries are ignored.
 
-### With DOI Present
+```rust
+use biblib::dedupe::Deduplicator;
+use biblib::Citation;
 
-When both citations have DOIs, matching uses the **Jaro** similarity algorithm:
+let citations = vec![
+    Citation {
+        title: "Example Title".to_string(),
+        doi: Some("10.1000/example".to_string()),
+        ..Default::default()
+    },
+    Citation {
+        title: "Example Title".to_string(),
+        doi: Some("10.1000/example".to_string()),
+        ..Default::default()
+    },
+];
+
+let sources = vec!["Embase", "PubMed"];
+
+let groups = Deduplicator::builder()
+    .source_preferences(["PubMed", "Embase"])
+    .build()
+    .find_duplicates_with_sources(&citations, &sources);
+
+assert_eq!(groups[0].unique, 1);
+assert_eq!(groups[0].duplicates, vec![0]);
+```
+
+## Owned Results
+
+If you want the previous owned-group shape from the 0.7 series, use the
+`*_cloned` methods:
+
+```rust
+use biblib::dedupe::Deduplicator;
+
+let groups = Deduplicator::new().find_duplicates_cloned(&[]);
+assert!(groups.is_empty());
+```
+
+## Builder Options
+
+`Deduplicator` is configured through `Deduplicator::builder()`:
+
+```rust
+use biblib::dedupe::Deduplicator;
+
+let deduplicator = Deduplicator::builder()
+    .year_tolerance(1)
+    .parallel(false)
+    .source_preferences(["PubMed", "CrossRef"])
+    .doi_title_threshold(0.85)
+    .no_doi_title_threshold(0.93)
+    .exact_title_threshold(0.99)
+    .build();
+
+let _ = deduplicator;
+```
+
+### Defaults
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `year_tolerance` | `1` | Cross-year matching window for fuzzy matching |
+| `parallel` | `false` | Evaluate pass-2 blocks with Rayon |
+| `source_preferences` | `[]` | Source priority for choosing `unique` |
+| `doi_title_threshold` | `0.85` | Stored builder threshold for DOI-title matching configuration |
+| `no_doi_title_threshold` | `0.93` | Fuzzy threshold when at least one DOI is missing |
+| `exact_title_threshold` | `0.99` | High-confidence title threshold |
+
+### Builder Validation
+
+`build()` panics with a clear message when:
+
+- Any threshold is outside `(0.0, 1.0]`
+- `doi_title_threshold > exact_title_threshold`
+- `no_doi_title_threshold > exact_title_threshold`
+
+## Matching Engine
+
+The deduplicator uses a two-pass engine.
+
+### Pass 1: DOI Clustering
+
+Records with the same normalized DOI are bucketed together and compared in
+O(n) DOI-bucket time.
 
 | Condition | Required |
-|-----------|----------|
-| Title similarity | ≥ 0.85 |
+| --- | --- |
 | DOI match | Yes |
-| Journal or ISSN match | Yes |
+| Title similarity | `jaro >= 0.70` |
 
-**Alternative criteria** (same DOI):
-- Title similarity ≥ 0.99 AND (volume OR pages match)
+If either normalized title is empty, the title guard is replaced with metadata
+agreement on any of:
 
-**Different DOIs** (still may match):
-- Title similarity ≥ 0.99 AND year match AND (volume OR pages match) AND (journal OR ISSN match)
+- Journal match
+- ISSN match
+- Volume match
+- Start-page match
 
-### Without DOI
+### Pass 2: Blocked Fuzzy Matching
 
-When DOIs are missing or empty, matching uses **Jaro-Winkler** with stricter thresholds:
+Records with empty normalized titles are excluded from pass 2. All other
+records are placed into year-based blocks derived from `year_tolerance`.
+
+#### Blocking
+
+- A record with year `y` joins every block `y..=y + year_tolerance`
+- A record with no year joins a dedicated unknown-year block
+- The unknown-year block is also compared against every concrete year block
+
+#### Pair Predicates
+
+| Predicate | Meaning |
+| --- | --- |
+| `journal_match` | Full/full, abbr/abbr, full/abbr, or abbr/full match |
+| `issn_match` | Any shared normalized ISSN |
+| `volume_match` | Both normalized volumes are present and equal |
+| `page_match` | Both normalized start pages are present and equal |
+| `year_compatible` | `true` when years differ by at most `year_tolerance`, or either side is missing |
+
+#### When Both Records Have DOIs
 
 | Condition | Required |
-|-----------|----------|
-| Title similarity | ≥ 0.93 |
-| Volume or pages match | Yes |
+| --- | --- |
+| Similarity algorithm | `jaro` |
+| Title similarity | `>= exact_title_threshold` |
+| Year compatibility | Yes |
+| Volume or page match | Yes |
 | Journal or ISSN match | Yes |
 
-**Alternative criteria**:
-- Title similarity ≥ 0.99 AND year match AND volume AND pages match
+#### When At Least One DOI Is Missing
 
-### Why Different Algorithms?
+| Path | Required |
+| --- | --- |
+| Standard fuzzy path | `jaro_winkler >= no_doi_title_threshold` AND year compatible AND `(volume OR page)` AND `(journal OR ISSN)` |
+| Exact-title fallback | `jaro_winkler >= exact_title_threshold` AND year compatible AND volume match AND page match |
 
-- **Jaro**: Used with DOIs because the DOI already provides high confidence; looser title matching is acceptable
-- **Jaro-Winkler**: Weights prefix matches more heavily, useful for catching title variations without DOI confirmation
+#### Additional Guards
 
----
+- Series/erratum guard: if a Jaro-Winkler match is below
+  `exact_title_threshold` and the differing suffixes are only digits or roman
+  numerals, `page_match` is required.
+- Author guard: if both records have a first-author key and they differ,
+  matches below `AUTHOR_GUARD_THRESHOLD` are rejected.
 
-## Configuration
+### Group Assembly
 
-### DeduplicatorConfig Options
+After all unions are applied, components are turned into deterministic groups.
+The `unique` member is selected in this order:
 
-```rust
-pub struct DeduplicatorConfig {
-    pub group_by_year: bool,
-    pub run_in_parallel: bool,
-    pub source_preferences: Vec<String>,
-}
-```
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `group_by_year` | `true` | Group citations by year before comparing |
-| `run_in_parallel` | `false` | Use Rayon for parallel processing |
-| `source_preferences` | `[]` | Ordered list of preferred sources |
-
-### Important Notes
-
-- `run_in_parallel` is **ignored** if `group_by_year` is false
-- Year grouping is recommended for datasets > 1000 citations
-- Parallel processing requires the `dedupe` feature
-
----
+1. First matching source in `source_preferences`
+2. First citation with non-empty trimmed `abstract_text`
+3. Among those, first citation with a non-empty DOI
+4. Lowest index
 
 ## Normalization
 
-Before comparison, all fields are normalized to improve matching accuracy.
+Deduplication defensively re-normalizes records even if they came from
+`biblib` parsers.
 
-### Title Normalization
+### Title
 
-1. Convert Unicode escape sequences (e.g., `<U+00E9>` → `é`)
-2. Replace HTML entities (`&lt;` → `<`, etc.)
-3. Remove HTML tags (`<sup>`, `<sub>`, etc.)
-4. Replace Greek letters with ASCII equivalents:
-   - `α` → `a`, `β/ß` → `b`, `γ` → `g`
-5. Convert to lowercase
-6. Remove all non-alphanumeric characters
+The title pipeline is:
 
-**Example:**
+1. Convert `<U+XXXX>` Unicode escapes
+2. Lowercase
+3. Remove supported HTML entities and tags
+4. Replace selected Greek characters with ASCII fallbacks
+5. Apply Unicode NFKD normalization
+6. Strip combining marks
+7. Keep only alphanumeric characters
+
+Empty titles normalize to the empty string and do not error.
+
+### DOI
+
+Raw DOI values are normalized with `utils::format_doi()`, so values like
+`https://doi.org/10.1000/X` and `10.1000/x` compare as the same DOI.
+
+### Pages
+
+Page ranges are normalized with `utils::format_page_numbers()`, then the start
+page is extracted, lowercased, and stripped to alphanumerics only.
+
+Examples:
+
+- `1234-45` -> `1234`
+- `1234-1245` -> `1234`
+
+### Journal and Abbreviation
+
+Journal names keep the existing normalization pipeline, but empty results are
+stored as `None`, so `Some("")` never counts as a match.
+
+### ISSN
+
+ISSNs are normalized into standard forms such as `1234-5678`. Values with `X`
+outside the final position are rejected.
+
+## Performance Notes
+
+- Pass 1 is DOI-bucketed and linear in the number of DOI records per bucket.
+- Pass 2 is block-based rather than a global greedy O(n²) scan.
+- `parallel(true)` parallelizes pass-2 block evaluation only; unions are still
+  applied sequentially for determinism.
+
+## Migration from 0.7
+
+### Duplicate Groups
+
+`DuplicateGroup` is now index-based:
+
+```rust
+// 0.7
+// group.unique: Citation
+// group.duplicates: Vec<Citation>
+
+// 0.8
+// group.unique: usize
+// group.duplicates: Vec<usize>
 ```
-"Machine Learning: A β-test <sup>2</sup>" 
-→ "machinelearningabtest2"
-```
 
-### Journal Normalization
-
-1. Strip ". Conference" suffix and anything after
-2. Convert to lowercase
-3. Remove all non-alphanumeric characters
-
-### Volume Normalization
-
-1. Find first sequence of digits
-2. Extract only the numeric portion
-
-**Example:** `"Vol. 23 (Suppl)"` → `"23"`
-
-### ISSN Normalization
-
-1. Strip common suffixes like "(Print)", "(Electronic)", "(Linking)"
-2. Keep only the ISSN pattern (e.g., `1234-5678`)
-
-### Journal Matching
-
-Two journals are considered matching if **any** of these are true:
-- Both full names match (after normalization)
-- Both abbreviations match
-- One's full name matches the other's abbreviation
-- One's abbreviation matches the other's full name
-
----
-
-## Performance
-
-### Time Complexity
-
-| Configuration | Complexity |
-|---------------|------------|
-| No year grouping | O(n²) |
-| With year grouping | O(Σ n_y²) |
-| With parallel + year | Same but parallelized |
-
-Where `n` = total citations, `n_y` = citations per year.
-
-### Recommendations
-
-| Dataset Size | Recommended Configuration |
-|--------------|---------------------------|
-| < 100 | Any configuration works |
-| 100-1000 | Enable `group_by_year` |
-| > 1000 | Enable both `group_by_year` and `run_in_parallel` |
-
-### Memory Usage
-
-Each citation is preprocessed once, storing:
-- Normalized title
-- Normalized journal name
-- Normalized journal abbreviation
-- Normalized volume
-- Normalized ISSNs
-
----
-
-## Source Preferences
-
-When multiple sources provide the same citation, you can specify which source's version to keep.
+Use `find_duplicates_cloned()` or `find_duplicates_with_sources_cloned()` if
+you want owned `Citation` values in the result.
 
 ### Configuration
 
-```rust
-let config = DeduplicatorConfig {
-    source_preferences: vec![
-        "PubMed".to_string(),
-        "Embase".to_string(),
-        "CrossRef".to_string(),
-    ],
-    ..Default::default()
-};
-```
+The old `DeduplicatorConfig`, `with_config()`, `group_by_year`, and
+`run_in_parallel` APIs were removed. Use the builder instead.
 
-### Usage
+### Error Handling
 
-```rust
-let citations = vec![/* ... */];
-let sources = vec!["Embase", "PubMed"];
-
-let groups = deduplicator
-    .find_duplicates_with_sources(&citations, &sources)
-    .unwrap();
-```
-
-### Selection Logic
-
-When selecting the "unique" citation from a duplicate group:
-
-1. **First**: Check source preferences (in order)
-2. **Second**: Prefer citations with abstracts
-3. **Third**: Among those with abstracts, prefer ones with DOIs
-4. **Fallback**: Use first citation in group
-
----
-
-## Similarity Thresholds
-
-| Scenario | Algorithm | Threshold |
-|----------|-----------|-----------|
-| With DOI + journal/ISSN | Jaro | 0.85 |
-| With DOI without journal | Jaro | 0.99 |
-| Without DOI + journal/ISSN | Jaro-Winkler | 0.93 |
-| Without DOI without journal | Jaro-Winkler | 0.99 |
-
-These thresholds were tuned to balance precision (avoiding false positives) and recall (catching true duplicates).
+Deduplication methods are now infallible. Overlong `sources` input is
+tolerated and truncated logically instead of returning an error.

@@ -29,14 +29,14 @@ All parser outputs converge on the same `Citation` struct, including normalized 
 
 ```toml
 [dependencies]
-biblib = "0.7"
+biblib = "0.8"
 ```
 
 For a smaller build:
 
 ```toml
 [dependencies]
-biblib = { version = "0.7", default-features = false, features = ["ris"] }
+biblib = { version = "0.8", default-features = false, features = ["ris"] }
 ```
 
 ## Quick Start
@@ -191,44 +191,46 @@ assert_eq!(citations[0].date.as_ref().unwrap().year, 2023);
 ### Deduplicate Parsed Records
 
 ```rust
-use biblib::dedupe::{Deduplicator, DeduplicatorConfig};
+use biblib::dedupe::Deduplicator;
 use biblib::{Citation, Date};
 
 let citations = vec![
     Citation {
         title: "Example Title".to_string(),
         doi: Some("10.1000/example".to_string()),
-        date: Some(Date { year: 2023, month: None, day: None }),
+        date: Some(Date {
+            year: 2023,
+            month: None,
+            day: None,
+        }),
         journal: Some("Example Journal".to_string()),
         ..Default::default()
     },
     Citation {
         title: "Example Title".to_string(),
-        doi: Some("10.1000/example".to_string()),
-        date: Some(Date { year: 2023, month: None, day: None }),
+        doi: Some("https://doi.org/10.1000/EXAMPLE".to_string()),
+        date: Some(Date {
+            year: 2023,
+            month: None,
+            day: None,
+        }),
         journal: Some("Example Journal".to_string()),
         ..Default::default()
     },
 ];
 
-let config = DeduplicatorConfig {
-    group_by_year: true,
-    run_in_parallel: true,
-    source_preferences: vec!["PubMed".to_string()],
-};
+let groups = Deduplicator::builder()
+    .source_preferences(["PubMed"])
+    .build()
+    .find_duplicates(&citations);
 
-let groups = Deduplicator::new()
-    .with_config(config)
-    .find_duplicates(&citations)
-    .unwrap();
-
-let duplicate_group = groups
-    .iter()
-    .find(|group| group.unique.doi.as_deref() == Some("10.1000/example"))
-    .unwrap();
-
-assert_eq!(duplicate_group.duplicates.len(), 1);
+assert_eq!(groups.len(), 1);
+assert_eq!(groups[0].unique, 0);
+assert_eq!(groups[0].duplicates, vec![1]);
 ```
+
+If you want owned `Citation` values in the result, use
+`find_duplicates_cloned()` or `find_duplicates_with_sources_cloned()`.
 
 ## Data Model
 
@@ -308,7 +310,7 @@ For human-friendly diagnostics, enable `diagnostics`:
 
 ```toml
 [dependencies]
-biblib = { version = "0.7", features = ["diagnostics"] }
+biblib = { version = "0.8", features = ["diagnostics"] }
 ```
 
 Then use `parse_with_diagnostics()`:

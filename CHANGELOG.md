@@ -5,6 +5,113 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-07-11
+
+### Breaking
+
+- **Index-based duplicate groups**: `DuplicateGroup` now stores indices into the input slice (`unique: usize`, `duplicates: Vec<usize>`) instead of owned `Citation` values.
+- **Infallible dedupe methods**: `Deduplicator` methods now take `&self` and return results directly. `DedupeError` has been removed.
+- **Builder-based configuration**: `DeduplicatorConfig`, `with_config()`, `group_by_year`, and `run_in_parallel` were removed in favor of `Deduplicator::builder()`.
+- **Sources are now permissive**: `find_duplicates_with_sources()` ignores extra `sources` entries instead of treating them as an error.
+- **Feature-gated duplicate-group type**: `DuplicateGroup` is now only exported when the `dedupe` feature is enabled.
+
+### Changed
+
+- **Deduplication-focused release**: `0.8.0` is centered on the dedupe engine and public deduplication API rewrite.
+- **Cross-year fuzzy matching**: pass-2 matching now derives its blocking and compatibility window from `year_tolerance`, with the default allowing matches within plus or minus 1 year.
+- **Defensive normalization**: DOI and page comparisons now re-normalize user-constructed `Citation` values before matching.
+- **Missing and empty-field handling**: empty titles no longer abort deduplication, and empty-string journals no longer count as matching journals.
+- **Transitive clustering**: duplicate detection now uses union-find clustering, so transitive matches join the same component.
+- **Deterministic output ordering**: groups are sorted by smallest member index, duplicate indices are sorted ascending, and parallel matching produces the same final groups as sequential matching.
+
+### Added
+
+- **Configurable thresholds**: the builder now exposes `doi_title_threshold`, `no_doi_title_threshold`, and `exact_title_threshold` with validation.
+- **Series and erratum guard**: title suffixes that look like numbered series parts now require matching start pages for borderline fuzzy matches.
+- **First-author guard**: borderline fuzzy matches are rejected when normalized first-author surnames disagree.
+- **Owned result helpers**: `OwnedDuplicateGroup`, `find_duplicates_cloned()`, and `find_duplicates_with_sources_cloned()` provide a migration path for callers that still want owned `Citation` results.
+
+### Migration Notes
+
+#### `DuplicateGroup` result handling
+
+If you previously treated `DuplicateGroup` as an owned group of `Citation`
+values, update that code to treat `unique` and `duplicates` as indices into
+the input slice:
+
+```rust
+// Before (0.7.x):
+let groups = Deduplicator::new()
+    .with_config(config)
+    .find_duplicates(&citations)
+    .unwrap();
+
+let group = &groups[0];
+println!("{}", group.unique.title);
+for duplicate in &group.duplicates {
+    println!("{}", duplicate.title);
+}
+
+// After (0.8.x):
+let groups = Deduplicator::new().find_duplicates(&citations);
+
+let group = &groups[0];
+println!("{}", citations[group.unique].title);
+for &duplicate_idx in &group.duplicates {
+    println!("{}", citations[duplicate_idx].title);
+}
+```
+
+If you still want owned `Citation` values in the result, use
+`find_duplicates_cloned()` or `find_duplicates_with_sources_cloned()`.
+
+#### Deduplicator configuration
+
+Replace `DeduplicatorConfig` and `with_config()` with
+`Deduplicator::builder()`:
+
+```rust
+// Before (0.7.x):
+let config = DeduplicatorConfig {
+    group_by_year: true,
+    run_in_parallel: true,
+    source_preferences: vec!["PubMed".to_string()],
+};
+
+let groups = Deduplicator::new()
+    .with_config(config)
+    .find_duplicates(&citations)
+    .unwrap();
+
+// After (0.8.x):
+let groups = Deduplicator::builder()
+    .parallel(true)
+    .source_preferences(["PubMed"])
+    .build()
+    .find_duplicates(&citations);
+```
+
+Use the builder's `year_tolerance(...)`, `parallel(...)`,
+`source_preferences(...)`, `doi_title_threshold(...)`,
+`no_doi_title_threshold(...)`, and `exact_title_threshold(...)` methods to
+configure the deduplicator.
+
+#### Error handling
+
+Deduplication methods are now infallible. Remove `DedupeError` handling and
+dedupe-specific `unwrap()` calls:
+
+```rust
+// Before (0.7.x):
+let groups = deduplicator.find_duplicates(&citations)?;
+
+// After (0.8.x):
+let groups = deduplicator.find_duplicates(&citations);
+```
+
+`find_duplicates_with_sources()` also now tolerates `sources` slices that are
+longer than `citations`; extra source entries are ignored.
+
 ## [0.7.2] - 2026-07-10
 
 ### Changed

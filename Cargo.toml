@@ -1,6 +1,6 @@
 [package]
 name = "biblib"
-version = "0.7.2"
+version = "0.8.0"
 edition = "2024"
 description = "Parse, manage, and deduplicate academic citations"
 authors = ["Ali Azlan <aliazlanofficial@gmail.com>"]
@@ -19,7 +19,7 @@ xml = ["dep:quick-xml"]
 ris = []
 enw = []
 bib = []
-dedupe = ["dep:rayon", "dep:strsim"]
+dedupe = ["dep:rayon", "dep:strsim", "dep:unicode-normalization"]
 diagnostics = ["dep:ariadne"]
 
 [dependencies]
@@ -34,6 +34,7 @@ regex-lite = "0.1.9"
 either = "1.15.0"
 itertools = "0.14.0"
 compact_str = "0.9.0"
+unicode-normalization = { version = "0.1.24", optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
