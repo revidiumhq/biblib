@@ -15,3 +15,5 @@ rust-toolchain.toml
 
 # pre-commit
 .pre-commit-config.yaml
+
+tests/fixtures/ris
