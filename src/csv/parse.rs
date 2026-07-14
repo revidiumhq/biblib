@@ -133,7 +133,7 @@ pub(crate) fn csv_parse_with_format<S: AsRef<str>>(
 
 /// Detect CSV delimiter by analyzing the content.
 pub fn detect_csv_delimiter(content: &str) -> u8 {
-    let delimiters = [b',', b';', b'\t', b'|'];
+    let delimiters = *b",;\t|";
     let sample_lines: Vec<&str> = content.lines().take(5).collect();
 
     if sample_lines.is_empty() {

@@ -512,11 +512,20 @@ Paper,Smith,Custom Value
 
 All DOI values are normalized:
 
-1. Convert to lowercase
-2. Remove URL prefixes (`https://doi.org/`, `doi:`, etc.)
-3. Remove `[doi]` suffix
-4. Remove all whitespace
-5. Extract DOI starting from `10.`
+1. Percent-decode the raw value
+2. Convert to lowercase
+3. Remove URL and `doi:`-style prefixes by extracting from the first `10.`
+4. Remove `[doi]` suffix
+5. Remove all whitespace
+6. Trim trailing punctuation like `.`, `,`, `;`, and unmatched `)`
+
+### Page Normalization
+
+All page values are normalized through `format_page_numbers()`:
+
+1. Normalize known Unicode dash variants to ASCII `-`
+2. Expand shortened end pages like `1234-45` to `1234-1245`
+3. Preserve non-range values when they are not parseable as a page span
 
 ### ISSN Splitting
 

@@ -79,7 +79,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! biblib = { version = "0.7", default-features = false, features = ["ris", "csv"] }
+//! biblib = { version = "0.8", default-features = false, features = ["ris", "csv"] }
 //! ```
 //!
 //! Available public features:
@@ -100,7 +100,7 @@
 //! # Deduplication
 //!
 //! ```rust
-//! use biblib::dedupe::{Deduplicator, DeduplicatorConfig};
+//! use biblib::dedupe::Deduplicator;
 //! use biblib::{Citation, Date};
 //!
 //! let citations = vec![
@@ -113,30 +113,18 @@
 //!     },
 //!     Citation {
 //!         title: "Example Title".to_string(),
-//!         doi: Some("10.1000/example".to_string()),
+//!         doi: Some("https://doi.org/10.1000/EXAMPLE".to_string()),
 //!         date: Some(Date { year: 2023, month: None, day: None }),
 //!         journal: Some("Example Journal".to_string()),
 //!         ..Default::default()
 //!     },
 //! ];
 //!
-//! let config = DeduplicatorConfig {
-//!     group_by_year: true,
-//!     run_in_parallel: true,
-//!     source_preferences: vec!["PubMed".to_string()],
-//! };
+//! let groups = Deduplicator::new().find_duplicates(&citations);
 //!
-//! let groups = Deduplicator::new()
-//!     .with_config(config)
-//!     .find_duplicates(&citations)
-//!     .unwrap();
-//!
-//! let duplicate_group = groups
-//!     .iter()
-//!     .find(|group| group.unique.doi.as_deref() == Some("10.1000/example"))
-//!     .unwrap();
-//!
-//! assert_eq!(duplicate_group.duplicates.len(), 1);
+//! assert_eq!(groups.len(), 1);
+//! assert_eq!(groups[0].unique, 0);
+//! assert_eq!(groups[0].duplicates, vec![1]);
 //! ```
 //!
 //! # Errors and Diagnostics
@@ -184,6 +172,8 @@ pub use bib::BibParser;
 #[cfg(feature = "csv")]
 #[allow(deprecated)]
 pub use csv::{CsvParser, IctrpCsvParser};
+#[cfg(feature = "dedupe")]
+pub use dedupe::{DuplicateGroup, OwnedDuplicateGroup};
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::parse_with_diagnostics;
 #[cfg(feature = "xml")]
@@ -324,15 +314,6 @@ impl Citation {
     pub fn new() -> Self {
         Self::default()
     }
-}
-
-/// Represents a group of duplicate citations with one unique citation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DuplicateGroup {
-    /// The unique (original) citation
-    pub unique: Citation,
-    /// The duplicate citations
-    pub duplicates: Vec<Citation>,
 }
 
 /// Trait for implementing citation parsers.

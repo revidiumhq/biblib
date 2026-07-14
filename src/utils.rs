@@ -2,9 +2,6 @@ use crate::Date;
 use crate::regex::Regex;
 use std::sync::LazyLock;
 
-static DOI_URL_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^https?://(?:dx\.)?doi\.org/(.+)$").unwrap());
-
 static ISSN_SPLIT_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\d{4}-\d{3}[\dX](?:\s*\([^)]+\))?").unwrap());
 
@@ -14,15 +11,17 @@ static ISSN_SPLIT_REGEX: LazyLock<Regex> =
 ///
 /// * `page_str` - The page string to format
 pub fn format_page_numbers(page_range: &str) -> String {
+    let normalized_page_range: String = page_range.chars().map(normalize_page_dash).collect();
+
     // Handle non-hyphenated or empty input
-    if !page_range.contains('-') {
-        return page_range.to_string();
+    if !normalized_page_range.contains('-') {
+        return normalized_page_range;
     }
 
     // Split the range into from and to parts
-    let parts: Vec<&str> = page_range.split('-').collect();
+    let parts: Vec<&str> = normalized_page_range.split('-').collect();
     if parts.len() != 2 {
-        return page_range.to_string();
+        return normalized_page_range;
     }
 
     let (from, to) = (parts[0], parts[1]);
@@ -67,6 +66,14 @@ pub fn format_page_numbers(page_range: &str) -> String {
     )
 }
 
+fn normalize_page_dash(ch: char) -> char {
+    match ch {
+        '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2212}'
+        | '\u{FE58}' | '\u{FE63}' | '\u{FF0D}' => '-',
+        _ => ch,
+    }
+}
+
 /// Helper function to split a page number into prefix and numeric part
 fn split_prefix_and_number(input: &str) -> (String, Option<String>) {
     // Find the first numeric character
@@ -92,24 +99,80 @@ pub fn format_doi(doi_str: &str) -> Option<String> {
     if doi_str.is_empty() {
         return None;
     }
-    let doi = doi_str
-        .trim()
-        .trim_end_matches("[doi]")
-        .trim()
-        .replace(|c: char| c.is_whitespace(), "") // Remove all whitespace
-        .to_lowercase();
+
+    let doi = percent_decode(doi_str.trim()).to_lowercase();
+    let doi = doi.replace(|c: char| c.is_whitespace(), "");
 
     // Find the first occurrence of "10." which typically starts a DOI
     if let Some(pos) = doi.find("10.") {
-        let doi = &doi[pos..];
-        if let Some(captures) = DOI_URL_REGEX.captures(doi) {
-            Some(captures[1].to_string())
-        } else {
-            Some(doi.to_string())
-        }
+        let doi = strip_doi_trailing_noise(&doi[pos..]);
+        (!doi.is_empty()).then_some(doi)
     } else {
         None
     }
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut idx = 0;
+
+    while idx < bytes.len() {
+        if bytes[idx] == b'%'
+            && idx + 2 < bytes.len()
+            && let (Some(high), Some(low)) = (
+                from_hex_digit(bytes[idx + 1]),
+                from_hex_digit(bytes[idx + 2]),
+            )
+        {
+            decoded.push((high << 4) | low);
+            idx += 3;
+            continue;
+        }
+
+        decoded.push(bytes[idx]);
+        idx += 1;
+    }
+
+    String::from_utf8(decoded).unwrap_or_else(|_| input.to_string())
+}
+
+fn from_hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn strip_doi_trailing_noise(doi: &str) -> String {
+    let mut cleaned = doi.trim().to_string();
+
+    loop {
+        let before = cleaned.clone();
+        cleaned = cleaned.trim_end_matches("[doi]").to_string();
+        cleaned = cleaned.trim_end_matches(['.', ',', ';']).to_string();
+        cleaned = trim_unmatched_trailing_parens(&cleaned);
+
+        if cleaned == before {
+            break;
+        }
+    }
+
+    cleaned
+}
+
+fn trim_unmatched_trailing_parens(doi: &str) -> String {
+    let mut cleaned = doi.to_string();
+    while cleaned.ends_with(')')
+        && cleaned.chars().filter(|&ch| ch == ')').count()
+            > cleaned.chars().filter(|&ch| ch == '(').count()
+    {
+        cleaned.pop();
+    }
+
+    cleaned
 }
 
 /// Splits a string containing multiple ISSNs into a vector of individual ISSNs
@@ -203,10 +266,9 @@ pub fn parse_pubmed_date(date_str: &str) -> Option<Date> {
     let parts: Vec<&str> = date_str.split_whitespace().collect();
 
     // First part should be year
-    let year = if let Some(year_str) = parts.first() {
+    let year = {
+        let year_str = parts.first()?;
         year_str.parse::<i32>().ok()?
-    } else {
-        return None;
     };
 
     let mut month = None;
@@ -244,14 +306,13 @@ pub fn parse_ris_date(date_str: &str) -> Option<Date> {
     let parts: Vec<&str> = date_str.split('/').collect();
 
     // First part should be year
-    let year = if let Some(year_str) = parts.first() {
+    let year = {
+        let year_str = parts.first()?;
         if !year_str.is_empty() {
             year_str.parse::<i32>().ok()?
         } else {
             return None;
         }
-    } else {
-        return None;
     };
 
     let mut month = None;
@@ -510,6 +571,21 @@ mod tests {
         assert_eq!(format_page_numbers("01-Apr"), "01-Apr");
         assert_eq!(format_page_numbers("iii613-iii614"), "iii613-iii614");
         assert_eq!(format_page_numbers("101-101"), "101");
+
+        let dash_variants = [
+            "1417‐1422",  // hyphen
+            "1417‑1422",  // non-breaking hyphen
+            "1417‒1422",  // figure dash
+            "1417–1422",  // en dash
+            "1417—1422",  // em dash
+            "1417−1422",  // minus sign
+            "1417﹘1422", // small em dash
+            "1417﹣1422", // small hyphen-minus
+            "1417－1422", // fullwidth hyphen-minus
+        ];
+        for variant in dash_variants {
+            assert_eq!(format_page_numbers(variant), "1417-1422");
+        }
     }
 
     #[test]
@@ -547,6 +623,19 @@ mod tests {
                 "https://doi.org/10.1000/test [doi]",
                 Some("10.1000/test".to_string()),
             ),
+            (
+                "https://doi.org/10.1000%2FTEST",
+                Some("10.1000/test".to_string()),
+            ),
+            ("doi:%2010.1000%2FTEST", Some("10.1000/test".to_string())),
+            ("10.1000/test.", Some("10.1000/test".to_string())),
+            ("10.1000/test,", Some("10.1000/test".to_string())),
+            ("10.1000/test;", Some("10.1000/test".to_string())),
+            (
+                "(doi:10.1000/test(abc)).",
+                Some("10.1000/test(abc)".to_string()),
+            ),
+            ("doi: 10.1000 / te st", Some("10.1000/test".to_string())),
             ("", None),
             ("invalid", None),
         ];
