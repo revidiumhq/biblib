@@ -108,7 +108,6 @@ let deduplicator = Deduplicator::builder()
     .year_tolerance(1)
     .parallel(false)
     .source_preferences(["PubMed", "CrossRef"])
-    .doi_title_threshold(0.85)
     .no_doi_title_threshold(0.93)
     .exact_title_threshold(0.99)
     .build();
@@ -123,7 +122,6 @@ let _ = deduplicator;
 | `year_tolerance` | `1` | Cross-year matching window for fuzzy matching |
 | `parallel` | `false` | Evaluate pass-2 blocks with Rayon |
 | `source_preferences` | `[]` | Source priority for choosing `unique` |
-| `doi_title_threshold` | `0.85` | Fuzzy threshold when both records have DOIs |
 | `no_doi_title_threshold` | `0.93` | Fuzzy threshold when at least one DOI is missing |
 | `exact_title_threshold` | `0.99` | High-confidence title threshold |
 
@@ -132,7 +130,6 @@ let _ = deduplicator;
 `build()` panics with a clear message when:
 
 - Any threshold is outside `(0.0, 1.0]`
-- `doi_title_threshold > exact_title_threshold`
 - `no_doi_title_threshold > exact_title_threshold`
 
 ## Matching Engine
@@ -147,7 +144,7 @@ O(n) DOI-bucket time.
 | Condition | Required |
 | --- | --- |
 | DOI match | Yes |
-| Title similarity | `jaro >= 0.70` |
+| Title similarity | `jaro >= 0.90`, or a stricter corroborated rescue path |
 
 If either normalized title is empty, the title guard is replaced with metadata
 agreement on any of:
@@ -156,6 +153,14 @@ agreement on any of:
 - ISSN match
 - Volume match
 - Start-page match
+
+If both normalized titles are non-empty but `jaro < 0.90`, pass 1 only
+rescues the pair when all of the following hold:
+
+- No first-author disagreement when both author keys are present
+- `journal_match OR issn_match`
+- `page_match`
+- The series/erratum guard does not reject the pair
 
 ### Pass 2: Blocked Fuzzy Matching
 
@@ -175,29 +180,51 @@ records are placed into year-based blocks derived from `year_tolerance`.
 | `journal_match` | Full/full, abbr/abbr, full/abbr, or abbr/full match |
 | `issn_match` | Any shared normalized ISSN |
 | `volume_match` | Both normalized volumes are present and equal |
+| `issue_match` | Both normalized issues are present and equal |
 | `page_match` | Both normalized start pages are present and equal |
 | `year_compatible` | `true` when years differ by at most `year_tolerance`, or either side is missing |
 
-#### When Both Records Have DOIs
+#### When Both Records Have Normalized DOIs
 
-| Condition | Required |
-| --- | --- |
-| Similarity algorithm | `jaro` |
-| Title similarity | `>= doi_title_threshold` |
-| Year compatibility | Yes |
-| Volume or page match | Yes |
-| Journal or ISSN match | Yes |
+- Matching normalized DOIs are handled in pass 1.
+- Conflicting normalized DOIs are treated as non-duplicates.
 
 #### When At Least One DOI Is Missing
 
 | Path | Required |
 | --- | --- |
-| Standard fuzzy path | `jaro_winkler >= no_doi_title_threshold` AND year compatible AND `(volume OR page)` AND `(journal OR ISSN)` |
+| Standard fuzzy path | `jaro_winkler >= no_doi_title_threshold` AND year compatible AND tiered publication evidence AND `(journal OR ISSN)` |
 | Exact-title fallback | `jaro_winkler >= exact_title_threshold` AND year compatible AND volume match AND page match |
+
+For the standard fuzzy path, publication evidence is evaluated conservatively:
+
+- Strong: `page_match`
+- Medium: `volume_match AND issue_match`
+- Weak fallback: `volume_match AND same explicit year AND issue missing on at least one side AND page missing on at least one side`
+
+Contradictory publication metadata is treated as negative evidence in the
+no-DOI path:
+
+- If both normalized start pages are present and unequal, the pair is rejected
+- If both normalized issues are present and unequal while the volume matches,
+  the pair is rejected
+
+#### Bracketed Translated Titles
+
+When at least one title is a fully bracketed translated-title record such as
+`[Translated title ...]`, dedupe also allows a strict metadata-only path. This
+path requires:
+
+- `journal_match OR issn_match`
+- Same year
+- Same volume
+- Same pages
+- Same first-author key
+- Same issue when both issues are present
 
 #### Additional Guards
 
-- Series/erratum guard: if a Jaro-Winkler match is below
+- Series/erratum guard: if a borderline title match is below
   `exact_title_threshold` and the differing suffixes are only digits or roman
   numerals, `page_match` is required.
 - Author guard: if both records have a first-author key and they differ,
@@ -223,24 +250,33 @@ Deduplication defensively re-normalizes records even if they came from
 The title pipeline is:
 
 1. Convert `<U+XXXX>` Unicode escapes
-2. Lowercase
-3. Remove supported HTML entities and tags
-4. Replace selected Greek characters with ASCII fallbacks
-5. Apply Unicode NFKD normalization
-6. Strip combining marks
-7. Keep only alphanumeric characters
+2. Decode numeric HTML entities and a small named-entity set (`&amp;`, `&quot;`,
+   `&alpha;`, `&beta;`, etc.)
+3. Lowercase
+4. Strip a leading English article (`the`, `a`, `an`)
+5. Remove supported HTML tags
+6. Remove explicit markup-style sub/sup tokens such as `[sub]` and `(sup)`
+7. Expand Greek characters to word forms (`β`/`ß` -> `beta`, `α` -> `alpha`)
+8. Apply Unicode NFKD normalization
+9. Strip combining marks
+10. Keep only alphanumeric characters
 
 Empty titles normalize to the empty string and do not error.
 
 ### DOI
 
 Raw DOI values are normalized with `utils::format_doi()`, so values like
-`https://doi.org/10.1000/X` and `10.1000/x` compare as the same DOI.
+`https://doi.org/10.1000/X`, `doi:%2010.1000%2Fx`, and `10.1000/x.` compare as
+the same DOI. The cleanup is intentionally conservative: percent-decoding,
+whitespace removal, `[doi]` removal, and trailing punctuation trimming.
 
 ### Pages
 
 Page ranges are normalized with `utils::format_page_numbers()`, then the start
-page is extracted, lowercased, and stripped to alphanumerics only.
+page is extracted, lowercased, and stripped to alphanumerics only. Known
+Unicode dash variants such as `‐`, `‑`, `–`, `—`, `−`, `﹘`, `﹣`, and `－`
+are normalized to ASCII `-` first. Placeholder values such as `N.PAG`,
+`N.PAG-N.PAG`, `no pagination`, and `n/a` are treated as missing page data.
 
 Examples:
 
@@ -249,8 +285,17 @@ Examples:
 
 ### Journal and Abbreviation
 
-Journal names keep the existing normalization pipeline, but empty results are
-stored as `None`, so `Some("")` never counts as a match.
+Journal names drop a leading `the `, normalize `&amp;` and `&` to `and`, and
+then reduce to alphanumerics. Empty results are stored as `None`, so `Some("")`
+never counts as a match.
+
+### Author and Issue
+
+First-author keys use lowercase alphanumerics after Unicode NFKD folding, so
+accented and unaccented surname variants compare consistently. Issue values are
+normalized into conservative lowercase alphanumeric keys and can act as an
+additional metadata signal only when volume and page are missing and both
+records have the same explicit year.
 
 ### ISSN
 

@@ -1,4 +1,4 @@
-﻿//! Citations deduplicator implementation.
+//! Citations deduplicator implementation.
 //!
 //! The deduplicator works on slices of [`Citation`] values and returns
 //! deterministic, index-based duplicate groups.
@@ -87,7 +87,6 @@
 //!     .year_tolerance(1)
 //!     .parallel(false)
 //!     .source_preferences(["PubMed", "CrossRef"])
-//!     .doi_title_threshold(0.85)
 //!     .no_doi_title_threshold(0.93)
 //!     .exact_title_threshold(0.99)
 //!     .build();
@@ -95,9 +94,8 @@
 //! let _ = deduplicator;
 //! ```
 //!
-//! `build()` panics when a threshold is outside `(0.0, 1.0]`, or when either
-//! `doi_title_threshold` or `no_doi_title_threshold` exceeds
-//! `exact_title_threshold`.
+//! `build()` panics when a threshold is outside `(0.0, 1.0]`, or when
+//! `no_doi_title_threshold` exceeds `exact_title_threshold`.
 //!
 //! ## Matching Algorithm
 //!
@@ -110,10 +108,15 @@
 //! | Condition | Required |
 //! | --- | --- |
 //! | DOI match | Yes |
-//! | Title similarity | `jaro >= 0.70` |
+//! | Title similarity | `jaro >= 0.90`, or a stricter corroborated rescue path |
 //!
 //! If either normalized title is empty, pass 1 falls back to metadata
 //! agreement on journal, ISSN, volume, or normalized start page.
+//!
+//! When both normalized titles are non-empty but `jaro < 0.90`, pass 1 only
+//! rescues the pair when there is no first-author disagreement, either journal
+//! or ISSN matches, start pages match, and the series guard does not reject
+//! the pair.
 //!
 //! ### Pass 2: Blocked fuzzy matching
 //!
@@ -121,29 +124,29 @@
 //! Unknown-year records are compared with the unknown-year block and each
 //! concrete year block.
 //!
-//! When both records have DOIs:
+//! When both records have normalized DOIs:
 //!
-//! | Condition | Required |
-//! | --- | --- |
-//! | Similarity algorithm | `jaro` |
-//! | Title similarity | `>= doi_title_threshold` |
-//! | Year compatibility | Yes |
-//! | Volume or page match | Yes |
-//! | Journal or ISSN match | Yes |
+//! - Matching normalized DOIs are handled in pass 1.
+//! - Conflicting normalized DOIs are treated as non-duplicates.
 //!
 //! When at least one DOI is missing:
 //!
 //! | Path | Required |
 //! | --- | --- |
-//! | Standard fuzzy path | `jaro_winkler >= no_doi_title_threshold` and year compatible and `(volume or page)` and `(journal or ISSN)` |
+//! | Standard fuzzy path | `jaro_winkler >= no_doi_title_threshold` and year compatible and tiered publication evidence (page match, or volume+issue match, or same-year volume-only fallback when issue/page are missing) and `(journal or ISSN)` |
 //! | Exact-title fallback | `jaro_winkler >= exact_title_threshold` and year compatible and volume match and page match |
 //!
 //! Additional guards:
 //!
 //! - Series and erratum suffixes such as `part 1` / `part 2` require matching
-//!   start pages when the title match is below `exact_title_threshold`.
+//!   start pages for any borderline title match below `exact_title_threshold`.
 //! - Different first-author surnames block borderline matches below the internal
 //!   author-guard threshold.
+//! - A strict metadata-only path exists for fully bracketed translated-title
+//!   records when journal/ISSN, year, volume, pages, first author, and (if
+//!   present on both sides) issue all agree exactly.
+//! - Contradictory no-DOI page metadata, and contradictory issue metadata when
+//!   volume agrees, veto otherwise borderline no-DOI matches.
 //!
 //! ## Normalization
 //!
@@ -154,8 +157,12 @@
 //! - Page ranges go through [`format_page_numbers`], then compare on normalized
 //!   start page
 //! - Journal names and abbreviations normalize empty results to `None`
-//! - Titles are lowercased, HTML-cleaned, Unicode-normalized with NFKD, stripped
-//!   of combining marks, and reduced to alphanumerics
+//! - Author keys use lowercase alphanumerics after Unicode NFKD folding
+//! - Issue values normalize into conservative lowercase alphanumeric keys
+//! - Titles decode numeric/common HTML entities, lowercase, strip supported
+//!   HTML tags, expand Greek characters to word forms, apply Unicode NFKD,
+//!   strip combining marks, remove explicit markup artifacts, and reduce to
+//!   alphanumerics
 //!
 //! ## Determinism
 //!
@@ -176,27 +183,44 @@ use strsim::jaro;
 use strsim::jaro_winkler;
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
-const DEFAULT_BOTH_DOI_TITLE_THRESHOLD: f64 = 0.85;
 const NO_DOI_TITLE_SIMILARITY_THRESHOLD: f64 = 0.93;
-const PASS1_DOI_TITLE_SANITY: f64 = 0.70;
+const PASS1_DOI_TITLE_SANITY: f64 = 0.90;
 const AUTHOR_GUARD_THRESHOLD: f64 = 0.96;
 
 static UNICODE_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<U\+([0-9A-Fa-f]+)>").unwrap());
 
-const HTML_REPLACEMENTS: [(&str, &str); 12] = [
-    ("&lt;", "<"),
-    ("&gt;", ">"),
+static HTML_ENTITY_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"&(#x[0-9a-fA-F]+|#\d+|[A-Za-z]+);").unwrap());
+
+const HTML_TAG_REPLACEMENTS: [(&str, &str); 8] = [
     ("<sup>", ""),
     ("</sup>", ""),
     ("<sub>", ""),
     ("</sub>", ""),
     ("<inf>", ""),
     ("</inf>", ""),
-    ("\u{03B2}", "b"),
-    ("\u{03B1}", "a"),
-    ("\u{00DF}", "b"),
-    ("\u{03B3}", "g"),
+    ("<i>", ""),
+    ("</i>", ""),
+];
+
+const TITLE_MARKUP_TOKEN_REPLACEMENTS: [(&str, &str); 8] = [
+    ("[sub]", ""),
+    ("[/sub]", ""),
+    ("[sup]", ""),
+    ("[/sup]", ""),
+    ("(sub)", ""),
+    ("(/sub)", ""),
+    ("(sup)", ""),
+    ("(/sup)", ""),
+];
+
+const BOILERPLATE_TITLE_PREFIXES: [&str; 5] = [
+    "brief report",
+    "clinical note",
+    "case report",
+    "short communication",
+    "letter",
 ];
 
 /// Represents a group of duplicate citations using indices into the input slice.
@@ -223,7 +247,6 @@ pub struct DeduplicatorBuilder {
     year_tolerance: u8,
     parallel: bool,
     source_preferences: Vec<String>,
-    doi_title_threshold: f64,
     no_doi_title_threshold: f64,
     exact_title_threshold: f64,
 }
@@ -256,7 +279,6 @@ pub struct Deduplicator {
     year_tolerance: u8,
     parallel: bool,
     source_preferences: Vec<String>,
-    doi_title_threshold: f64,
     no_doi_title_threshold: f64,
     exact_title_threshold: f64,
 }
@@ -265,11 +287,14 @@ pub struct Deduplicator {
 struct DedupRecord {
     idx: usize,
     norm_title: String,
+    alt_norm_title: Option<String>,
+    has_bracketed_translation_title: bool,
     norm_doi: Option<String>,
     norm_journal: Option<String>,
     norm_journal_abbr: Option<String>,
     norm_issns: Vec<String>,
     norm_volume: Option<String>,
+    norm_issue: Option<String>,
     norm_start_page: Option<String>,
     year: Option<i32>,
     first_author_key: Option<String>,
@@ -279,6 +304,13 @@ struct DedupRecord {
 enum BlockTask {
     Within(Vec<usize>),
     Cross(Vec<usize>, Vec<usize>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MetadataRelation {
+    Match,
+    Missing,
+    Conflict,
 }
 
 #[derive(Debug, Clone)]
@@ -293,7 +325,6 @@ impl Default for DeduplicatorBuilder {
             year_tolerance: 1,
             parallel: false,
             source_preferences: Vec::new(),
-            doi_title_threshold: DEFAULT_BOTH_DOI_TITLE_THRESHOLD,
             no_doi_title_threshold: NO_DOI_TITLE_SIMILARITY_THRESHOLD,
             exact_title_threshold: 0.99,
         }
@@ -324,12 +355,6 @@ impl DeduplicatorBuilder {
     }
 
     #[must_use]
-    pub fn doi_title_threshold(mut self, doi_title_threshold: f64) -> Self {
-        self.doi_title_threshold = doi_title_threshold;
-        self
-    }
-
-    #[must_use]
     pub fn no_doi_title_threshold(mut self, no_doi_title_threshold: f64) -> Self {
         self.no_doi_title_threshold = no_doi_title_threshold;
         self
@@ -343,14 +368,9 @@ impl DeduplicatorBuilder {
 
     #[must_use]
     pub fn build(self) -> Deduplicator {
-        Self::validate_threshold("doi_title_threshold", self.doi_title_threshold);
         Self::validate_threshold("no_doi_title_threshold", self.no_doi_title_threshold);
         Self::validate_threshold("exact_title_threshold", self.exact_title_threshold);
 
-        assert!(
-            self.doi_title_threshold <= self.exact_title_threshold,
-            "DeduplicatorBuilder::build(): doi_title_threshold must be less than or equal to exact_title_threshold"
-        );
         assert!(
             self.no_doi_title_threshold <= self.exact_title_threshold,
             "DeduplicatorBuilder::build(): no_doi_title_threshold must be less than or equal to exact_title_threshold"
@@ -360,7 +380,6 @@ impl DeduplicatorBuilder {
             year_tolerance: self.year_tolerance,
             parallel: self.parallel,
             source_preferences: self.source_preferences,
-            doi_title_threshold: self.doi_title_threshold,
             no_doi_title_threshold: self.no_doi_title_threshold,
             exact_title_threshold: self.exact_title_threshold,
         }
@@ -523,6 +542,8 @@ impl Deduplicator {
             .iter()
             .enumerate()
             .map(|(idx, citation)| {
+                let converted_title = Self::convert_unicode_string(&citation.title);
+                let norm_title = Self::normalize_string(&converted_title);
                 let mut seen_issns = HashSet::new();
                 let norm_issns = citation
                     .issn
@@ -533,9 +554,13 @@ impl Deduplicator {
 
                 DedupRecord {
                     idx,
-                    norm_title: Self::normalize_string(&Self::convert_unicode_string(
-                        &citation.title,
-                    )),
+                    alt_norm_title: Self::strip_boilerplate_title_prefix(&converted_title)
+                        .map(Self::normalize_string)
+                        .filter(|alt_title| !alt_title.is_empty() && alt_title != &norm_title),
+                    has_bracketed_translation_title: Self::is_bracketed_translation_title(
+                        &converted_title,
+                    ),
+                    norm_title,
                     norm_doi: citation.doi.as_deref().and_then(format_doi),
                     norm_journal: Self::format_journal_name(citation.journal.as_deref())
                         .filter(|journal| !journal.is_empty()),
@@ -547,6 +572,11 @@ impl Deduplicator {
                         .as_deref()
                         .map(Self::normalize_volume)
                         .filter(|volume| !volume.is_empty()),
+                    norm_issue: citation
+                        .issue
+                        .as_deref()
+                        .map(Self::normalize_issue)
+                        .filter(|issue| !issue.is_empty()),
                     norm_start_page: citation
                         .pages
                         .as_deref()
@@ -579,13 +609,14 @@ impl Deduplicator {
                     let left = &records[bucket[left_idx]];
                     let right = &records[bucket[right_idx]];
 
-                    let title_guard = if left.norm_title.is_empty() || right.norm_title.is_empty() {
+                    let should_union = if left.norm_title.is_empty() || right.norm_title.is_empty()
+                    {
                         Self::has_metadata_agreement(left, right)
                     } else {
-                        jaro(&left.norm_title, &right.norm_title) >= PASS1_DOI_TITLE_SANITY
+                        self.pass1_same_doi_titles_match(left, right)
                     };
 
-                    if title_guard {
+                    if should_union {
                         union_find.union(left.idx, right.idx);
                     }
                 }
@@ -725,32 +756,81 @@ impl Deduplicator {
             &right.norm_journal_abbr,
         );
         let issn_match = Self::match_issns(&left.norm_issns, &right.norm_issns);
+        let journal_or_issn_match = journal_match || issn_match;
         let volume_match = Self::options_match(&left.norm_volume, &right.norm_volume);
+        let issue_match = Self::options_match(&left.norm_issue, &right.norm_issue);
         let page_match = Self::options_match(&left.norm_start_page, &right.norm_start_page);
         let year_compatible = self.years_match(left.year, right.year);
+        let same_year =
+            matches!((left.year, right.year), (Some(left), Some(right)) if left == right);
+        let doi_publication_match = volume_match || page_match || (issue_match && same_year);
 
         match (&left.norm_doi, &right.norm_doi) {
+            (Some(left_doi), Some(right_doi)) if left_doi != right_doi => false,
+            _ if Self::matches_bracketed_translation_metadata_path(
+                left,
+                right,
+                journal_or_issn_match,
+                volume_match,
+                issue_match,
+                page_match,
+            ) =>
+            {
+                true
+            }
             (Some(_), Some(_)) => {
-                let sim = jaro(&left.norm_title, &right.norm_title);
+                let sim = Self::max_title_similarity(left, right, jaro);
                 if !Self::passes_author_guard(left, right, sim) {
                     return false;
                 }
 
-                sim >= self.doi_title_threshold
+                let matches = sim >= self.exact_title_threshold
                     && year_compatible
-                    && (volume_match || page_match)
-                    && (journal_match || issn_match)
+                    && doi_publication_match
+                    && journal_or_issn_match;
+
+                if !matches {
+                    return false;
+                }
+
+                if Self::fails_series_guard(
+                    &left.norm_title,
+                    &right.norm_title,
+                    sim,
+                    self.exact_title_threshold,
+                    page_match,
+                ) {
+                    return false;
+                }
+
+                true
             }
             _ => {
-                let sim = jaro_winkler(&left.norm_title, &right.norm_title);
+                if Self::has_page_conflict(left, right) {
+                    return false;
+                }
+
+                if volume_match && Self::has_issue_conflict(left, right) {
+                    return false;
+                }
+
+                let sim = Self::max_title_similarity(left, right, jaro_winkler);
                 if !Self::passes_author_guard(left, right, sim) {
                     return false;
                 }
 
+                let publication_match = Self::no_doi_publication_match(
+                    left,
+                    right,
+                    volume_match,
+                    issue_match,
+                    page_match,
+                    same_year,
+                );
                 let matches = (sim >= self.no_doi_title_threshold
                     && year_compatible
-                    && (volume_match || page_match)
-                    && (journal_match || issn_match))
+                    && publication_match
+                    && journal_or_issn_match)
                     || (sim >= self.exact_title_threshold
                         && year_compatible
                         && volume_match
@@ -760,13 +840,13 @@ impl Deduplicator {
                     return false;
                 }
 
-                if sim < self.exact_title_threshold
-                    && Self::looks_like_series_suffix_difference(
-                        &left.norm_title,
-                        &right.norm_title,
-                    )
-                    && !page_match
-                {
+                if Self::fails_series_guard(
+                    &left.norm_title,
+                    &right.norm_title,
+                    sim,
+                    self.exact_title_threshold,
+                    page_match,
+                ) {
                     return false;
                 }
 
@@ -883,16 +963,142 @@ impl Deduplicator {
             return String::new();
         }
 
-        let mut normalized = string.trim().to_lowercase();
-        for (needle, replacement) in HTML_REPLACEMENTS {
+        let mut normalized = Self::convert_unicode_string(string);
+        normalized = Self::decode_html_entities(&normalized);
+        normalized = normalized.trim().to_lowercase();
+        for article in ["the ", "a ", "an "] {
+            if let Some(stripped) = normalized.strip_prefix(article) {
+                normalized = stripped.to_string();
+                break;
+            }
+        }
+        for (needle, replacement) in HTML_TAG_REPLACEMENTS {
             normalized = normalized.replace(needle, replacement);
         }
+        for (needle, replacement) in TITLE_MARKUP_TOKEN_REPLACEMENTS {
+            normalized = normalized.replace(needle, replacement);
+        }
+        normalized = Self::expand_greek_characters(&normalized);
 
         normalized
             .nfkd()
             .filter(|ch| !is_combining_mark(*ch))
             .filter(|ch| ch.is_alphanumeric())
             .collect()
+    }
+
+    fn strip_boilerplate_title_prefix(title: &str) -> Option<&str> {
+        let trimmed = title.trim();
+        let lower = trimmed.to_lowercase();
+
+        for prefix in BOILERPLATE_TITLE_PREFIXES {
+            if let Some(remainder) = lower.strip_prefix(prefix) {
+                if remainder.is_empty()
+                    || !remainder
+                        .chars()
+                        .next()
+                        .is_some_and(Self::is_boilerplate_separator)
+                {
+                    continue;
+                }
+
+                let original_remainder = &trimmed[prefix.len()..];
+                let stripped = original_remainder
+                    .trim_start_matches(Self::is_boilerplate_separator)
+                    .trim();
+                if !stripped.is_empty() {
+                    return Some(stripped);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn is_boilerplate_separator(ch: char) -> bool {
+        ch.is_whitespace() || matches!(ch, '.' | ':' | ';' | ',' | '-' | '–' | '—')
+    }
+
+    fn decode_html_entities(input: &str) -> String {
+        HTML_ENTITY_REGEX
+            .replace_all(input, |caps: &crate::regex::Captures| {
+                Self::decode_html_entity(&caps[1]).unwrap_or_else(|| caps[0].to_string())
+            })
+            .to_string()
+    }
+
+    fn decode_html_entity(entity: &str) -> Option<String> {
+        if let Some(hex) = entity
+            .strip_prefix("#x")
+            .or_else(|| entity.strip_prefix("#X"))
+        {
+            return u32::from_str_radix(hex, 16)
+                .ok()
+                .and_then(char::from_u32)
+                .map(|ch| ch.to_string());
+        }
+
+        if let Some(decimal) = entity.strip_prefix('#') {
+            return decimal
+                .parse::<u32>()
+                .ok()
+                .and_then(char::from_u32)
+                .map(|ch| ch.to_string());
+        }
+
+        match entity.to_ascii_lowercase().as_str() {
+            "amp" => Some("&".to_string()),
+            "quot" => Some("\"".to_string()),
+            "apos" => Some("'".to_string()),
+            "lt" => Some("<".to_string()),
+            "gt" => Some(">".to_string()),
+            "nbsp" => Some(" ".to_string()),
+            "alpha" => Some("\u{03B1}".to_string()),
+            "beta" => Some("\u{03B2}".to_string()),
+            "gamma" => Some("\u{03B3}".to_string()),
+            "delta" => Some("\u{03B4}".to_string()),
+            "epsilon" => Some("\u{03B5}".to_string()),
+            "kappa" => Some("\u{03BA}".to_string()),
+            "lambda" => Some("\u{03BB}".to_string()),
+            "mu" => Some("\u{03BC}".to_string()),
+            "omega" => Some("\u{03C9}".to_string()),
+            _ => None,
+        }
+    }
+
+    fn expand_greek_characters(input: &str) -> String {
+        let mut expanded = String::with_capacity(input.len());
+        for ch in input.chars() {
+            match ch {
+                '\u{00DF}' | '\u{03B2}' => expanded.push_str("beta"),
+                '\u{03B1}' => expanded.push_str("alpha"),
+                '\u{03B3}' => expanded.push_str("gamma"),
+                '\u{03B4}' => expanded.push_str("delta"),
+                '\u{03B5}' => expanded.push_str("epsilon"),
+                '\u{03B6}' => expanded.push_str("zeta"),
+                '\u{03B7}' => expanded.push_str("eta"),
+                '\u{03B8}' => expanded.push_str("theta"),
+                '\u{03B9}' => expanded.push_str("iota"),
+                '\u{03BA}' => expanded.push_str("kappa"),
+                '\u{03BB}' => expanded.push_str("lambda"),
+                '\u{03BC}' | '\u{00B5}' => expanded.push_str("mu"),
+                '\u{03BD}' => expanded.push_str("nu"),
+                '\u{03BE}' => expanded.push_str("xi"),
+                '\u{03BF}' => expanded.push_str("omicron"),
+                '\u{03C0}' => expanded.push_str("pi"),
+                '\u{03C1}' => expanded.push_str("rho"),
+                '\u{03C3}' | '\u{03C2}' => expanded.push_str("sigma"),
+                '\u{03C4}' => expanded.push_str("tau"),
+                '\u{03C5}' => expanded.push_str("upsilon"),
+                '\u{03C6}' => expanded.push_str("phi"),
+                '\u{03C7}' => expanded.push_str("chi"),
+                '\u{03C8}' => expanded.push_str("psi"),
+                '\u{03C9}' => expanded.push_str("omega"),
+                _ => expanded.push(ch),
+            }
+        }
+
+        expanded
     }
 
     fn normalize_volume(volume: &str) -> String {
@@ -913,12 +1119,48 @@ impl Deduplicator {
         }
     }
 
+    fn normalize_issue(issue: &str) -> String {
+        if issue.is_empty() {
+            return String::new();
+        }
+
+        let mut normalized = issue.trim().to_lowercase();
+        normalized = normalized
+            .trim_matches(|ch: char| matches!(ch, '(' | ')' | '[' | ']'))
+            .to_string();
+
+        for prefix in ["issue", "no.", "no", "number", "nr.", "nr"] {
+            if let Some(stripped) = normalized.strip_prefix(prefix) {
+                normalized = stripped
+                    .trim_start_matches(|ch: char| {
+                        ch.is_whitespace() || matches!(ch, '.' | ':' | '-' | '/' | '#')
+                    })
+                    .trim()
+                    .to_string();
+                break;
+            }
+        }
+
+        normalized
+            .chars()
+            .filter(|ch| ch.is_alphanumeric())
+            .collect()
+    }
+
     fn normalize_start_page(pages: &str) -> Option<String> {
         let formatted = format_page_numbers(pages);
-        let start_page = formatted
-            .split('-')
-            .next()
-            .unwrap_or("")
+        let start_segment = formatted.split('-').next().unwrap_or("");
+        let canonical_start = start_segment
+            .chars()
+            .filter(|ch| ch.is_alphanumeric())
+            .collect::<String>()
+            .to_lowercase();
+
+        if matches!(canonical_start.as_str(), "npag" | "nopagination" | "na") {
+            return None;
+        }
+
+        let start_page = start_segment
             .chars()
             .filter(|ch| ch.is_alphanumeric())
             .collect::<String>()
@@ -931,11 +1173,72 @@ impl Deduplicator {
         let normalized = author_name
             .trim()
             .to_lowercase()
-            .chars()
+            .nfkd()
+            .filter(|ch| !is_combining_mark(*ch))
             .filter(|ch| ch.is_alphanumeric())
             .collect::<String>();
 
         (!normalized.is_empty()).then_some(normalized)
+    }
+
+    fn pass1_same_doi_titles_match(&self, left: &DedupRecord, right: &DedupRecord) -> bool {
+        let sim = Self::max_title_similarity(left, right, jaro);
+        if sim >= PASS1_DOI_TITLE_SANITY {
+            return true;
+        }
+
+        if Self::authors_conflict(left, right) {
+            return false;
+        }
+
+        let journal_or_issn_match = Self::journals_match(
+            &left.norm_journal,
+            &left.norm_journal_abbr,
+            &right.norm_journal,
+            &right.norm_journal_abbr,
+        ) || Self::match_issns(&left.norm_issns, &right.norm_issns);
+        let page_match = Self::options_match(&left.norm_start_page, &right.norm_start_page);
+
+        if !(journal_or_issn_match && page_match) {
+            return false;
+        }
+
+        if Self::fails_series_guard(
+            &left.norm_title,
+            &right.norm_title,
+            sim,
+            self.exact_title_threshold,
+            page_match,
+        ) {
+            return false;
+        }
+
+        true
+    }
+
+    fn max_title_similarity(
+        left: &DedupRecord,
+        right: &DedupRecord,
+        similarity: fn(&str, &str) -> f64,
+    ) -> f64 {
+        let mut max_similarity = similarity(&left.norm_title, &right.norm_title);
+
+        if let Some(left_alt_title) = left.alt_norm_title.as_deref() {
+            max_similarity = max_similarity.max(similarity(left_alt_title, &right.norm_title));
+        }
+
+        if let Some(right_alt_title) = right.alt_norm_title.as_deref() {
+            max_similarity = max_similarity.max(similarity(&left.norm_title, right_alt_title));
+        }
+
+        if let (Some(left_alt_title), Some(right_alt_title)) = (
+            left.alt_norm_title.as_deref(),
+            right.alt_norm_title.as_deref(),
+        ) {
+            max_similarity = max_similarity.max(similarity(left_alt_title, right_alt_title));
+        }
+
+        max_similarity
     }
 
     fn passes_author_guard(left: &DedupRecord, right: &DedupRecord, sim: f64) -> bool {
@@ -943,10 +1246,54 @@ impl Deduplicator {
             return true;
         }
 
-        match (&left.first_author_key, &right.first_author_key) {
-            (Some(left), Some(right)) => left == right,
-            _ => true,
-        }
+        !Self::authors_conflict(left, right)
+    }
+
+    fn authors_conflict(left: &DedupRecord, right: &DedupRecord) -> bool {
+        matches!(
+            (&left.first_author_key, &right.first_author_key),
+            (Some(left), Some(right)) if left != right
+        )
+    }
+
+    fn matches_bracketed_translation_metadata_path(
+        left: &DedupRecord,
+        right: &DedupRecord,
+        journal_or_issn_match: bool,
+        volume_match: bool,
+        issue_match: bool,
+        page_match: bool,
+    ) -> bool {
+        (left.has_bracketed_translation_title || right.has_bracketed_translation_title)
+            && journal_or_issn_match
+            && matches!((left.year, right.year), (Some(left_year), Some(right_year)) if left_year == right_year)
+            && volume_match
+            && Self::issues_compatible(left, right, issue_match)
+            && page_match
+            && Self::same_first_author(left, right)
+    }
+
+    fn issues_compatible(left: &DedupRecord, right: &DedupRecord, issue_match: bool) -> bool {
+        issue_match || left.norm_issue.is_none() || right.norm_issue.is_none()
+    }
+
+    fn same_first_author(left: &DedupRecord, right: &DedupRecord) -> bool {
+        left.first_author_key
+            .as_ref()
+            .zip(right.first_author_key.as_ref())
+            .is_some_and(|(left, right)| left == right)
+    }
+
+    fn fails_series_guard(
+        left_title: &str,
+        right_title: &str,
+        sim: f64,
+        exact_title_threshold: f64,
+        page_match: bool,
+    ) -> bool {
+        sim < exact_title_threshold
+            && Self::looks_like_series_suffix_difference(left_title, right_title)
+            && !page_match
     }
 
     fn looks_like_series_suffix_difference(left_title: &str, right_title: &str) -> bool {
@@ -998,13 +1345,67 @@ impl Deduplicator {
             &right.norm_journal_abbr,
         ) || Self::match_issns(&left.norm_issns, &right.norm_issns)
             || Self::options_match(&left.norm_volume, &right.norm_volume)
+            || Self::options_match(&left.norm_issue, &right.norm_issue)
             || Self::options_match(&left.norm_start_page, &right.norm_start_page)
     }
 
+    fn is_bracketed_translation_title(title: &str) -> bool {
+        let trimmed = title.trim();
+        trimmed.starts_with('[')
+            && trimmed.ends_with(']')
+            && trimmed[1..trimmed.len().saturating_sub(1)]
+                .trim()
+                .chars()
+                .any(|ch| !ch.is_whitespace())
+    }
+
     fn options_match(left: &Option<String>, right: &Option<String>) -> bool {
-        left.as_ref()
-            .zip(right.as_ref())
-            .is_some_and(|(left, right)| left == right)
+        matches!(Self::option_relation(left, right), MetadataRelation::Match)
+    }
+
+    fn options_conflict(left: &Option<String>, right: &Option<String>) -> bool {
+        matches!(
+            Self::option_relation(left, right),
+            MetadataRelation::Conflict
+        )
+    }
+
+    fn option_relation(left: &Option<String>, right: &Option<String>) -> MetadataRelation {
+        match (left, right) {
+            (Some(left), Some(right)) if left == right => MetadataRelation::Match,
+            (Some(_), Some(_)) => MetadataRelation::Conflict,
+            _ => MetadataRelation::Missing,
+        }
+    }
+
+    fn has_issue_conflict(left: &DedupRecord, right: &DedupRecord) -> bool {
+        Self::options_conflict(&left.norm_issue, &right.norm_issue)
+    }
+
+    fn has_page_conflict(left: &DedupRecord, right: &DedupRecord) -> bool {
+        Self::options_conflict(&left.norm_start_page, &right.norm_start_page)
+    }
+
+    fn no_doi_publication_match(
+        left: &DedupRecord,
+        right: &DedupRecord,
+        volume_match: bool,
+        issue_match: bool,
+        page_match: bool,
+        same_year: bool,
+    ) -> bool {
+        let issue_missing = matches!(
+            Self::option_relation(&left.norm_issue, &right.norm_issue),
+            MetadataRelation::Missing
+        );
+        let page_missing = matches!(
+            Self::option_relation(&left.norm_start_page, &right.norm_start_page),
+            MetadataRelation::Missing
+        );
+
+        page_match
+            || (volume_match && issue_match)
+            || (volume_match && same_year && issue_missing && page_missing)
     }
 
     /// Check if two journals match by comparing both full name and abbreviation.
@@ -1034,11 +1435,16 @@ impl Deduplicator {
 
     fn format_journal_name(full_name: Option<&str>) -> Option<String> {
         full_name.map(|name| {
-            name.split(". Conference")
+            let normalized = name
+                .split(". Conference")
                 .next()
                 .unwrap_or(name)
                 .trim()
-                .to_lowercase()
+                .to_lowercase();
+            let normalized = normalized.strip_prefix("the ").unwrap_or(&normalized);
+            normalized
+                .replace("&amp;", " and ")
+                .replace('&', " and ")
                 .chars()
                 .filter(|ch| ch.is_alphanumeric())
                 .collect::<String>()
@@ -1163,6 +1569,35 @@ mod tests {
             middle_name: None,
             affiliations: Vec::new(),
         });
+        citation
+    }
+
+    fn make_citation_with_author_and_doi(
+        title: &str,
+        author_name: &str,
+        year: Option<i32>,
+        journal: Option<&str>,
+        volume: Option<&str>,
+        pages: Option<&str>,
+        doi: Option<&str>,
+    ) -> Citation {
+        let mut citation = make_citation(title, year, journal, volume, pages, doi);
+        citation.authors.push(Author {
+            name: author_name.to_string(),
+            given_name: None,
+            middle_name: None,
+            affiliations: Vec::new(),
+        });
+        citation
+    }
+
+    fn with_issue(mut citation: Citation, issue: Option<&str>) -> Citation {
+        citation.issue = issue.map(str::to_string);
+        citation
+    }
+
+    fn with_issn(mut citation: Citation, issn: &[&str]) -> Citation {
+        citation.issn = issn.iter().map(|value| (*value).to_string()).collect();
         citation
     }
 
@@ -1346,6 +1781,59 @@ mod tests {
             Deduplicator::normalize_string("[&lt;sup&gt;11&lt;/sup&gt;C] benzo"),
             "11cbenzo".to_string()
         );
+        assert_eq!(
+            Deduplicator::normalize_string(
+                "β-blocker effects in &#946;-cells &amp; &#x3B2;-agonists"
+            ),
+            "betablockereffectsinbetacellsbetaagonists".to_string()
+        );
+        assert_eq!(
+            Deduplicator::normalize_string("beta-blocker effects in β-cells"),
+            "betablockereffectsinbetacells".to_string()
+        );
+        assert_eq!(
+            Deduplicator::normalize_string("&quot;α&quot; vs &Alpha; and ß"),
+            "alphavsalphaandbeta".to_string()
+        );
+        assert_eq!(
+            Deduplicator::normalize_string("Gene[sub]A[/sub] (sup)2(/sup)"),
+            "genea2".to_string()
+        );
+        assert_eq!(
+            Deduplicator::normalize_string("Subgroup analysis [sup]A[/sup]"),
+            "subgroupanalysisa".to_string()
+        );
+        assert_eq!(
+            Deduplicator::normalize_string("The Immune Response"),
+            "immuneresponse".to_string()
+        );
+        assert_eq!(
+            Deduplicator::normalize_string("A clinical pathway"),
+            "clinicalpathway".to_string()
+        );
+        assert_eq!(
+            Deduplicator::normalize_string("An observational cohort"),
+            "observationalcohort".to_string()
+        );
+    }
+
+    #[test]
+    fn test_normalize_author_key_unicode_folding() {
+        assert_eq!(
+            Deduplicator::normalize_author_key("Keyriläinen"),
+            Some("keyrilainen".to_string())
+        );
+        assert_eq!(
+            Deduplicator::normalize_author_key("Keyrilainen"),
+            Some("keyrilainen".to_string())
+        );
+    }
+
+    #[test]
+    fn test_normalize_start_page_treats_placeholders_as_missing() {
+        for placeholder in ["N.PAG", "N.PAG-N.PAG", "no pagination", "n/a", "na"] {
+            assert_eq!(Deduplicator::normalize_start_page(placeholder), None);
+        }
     }
 
     #[test]
@@ -1422,13 +1910,41 @@ mod tests {
             Deduplicator::format_journal_name(Some(
                 "The FASEB Journal. Conference: Experimental Biology"
             )),
-            Some("thefasebjournal".to_string())
+            Some("fasebjournal".to_string())
         );
         assert_eq!(
             Deduplicator::format_journal_name(Some(
                 "Arteriosclerosis Thrombosis and Vascular Biology. Conference: American Heart Association's Arteriosclerosis Thrombosis and Vascular Biology"
             )),
             Some("arteriosclerosisthrombosisandvascularbiology".to_string())
+        );
+        assert_eq!(
+            Deduplicator::format_journal_name(Some(
+                "Journal of Sports Medicine & Physical Fitness"
+            )),
+            Some("journalofsportsmedicineandphysicalfitness".to_string())
+        );
+        assert_eq!(
+            Deduplicator::format_journal_name(Some(
+                "The Journal of sports medicine and physical fitness"
+            )),
+            Some("journalofsportsmedicineandphysicalfitness".to_string())
+        );
+        assert_eq!(
+            Deduplicator::format_journal_name(Some(
+                "Journal of sports medicine and physical fitness"
+            )),
+            Some("journalofsportsmedicineandphysicalfitness".to_string())
+        );
+        assert_eq!(
+            Deduplicator::format_journal_name(Some(
+                "Journal of Sports Medicine &amp; Physical Fitness"
+            )),
+            Some("journalofsportsmedicineandphysicalfitness".to_string())
+        );
+        assert_eq!(
+            Deduplicator::format_journal_name(Some("Thorax")),
+            Some("thorax".to_string())
         );
         assert_eq!(Deduplicator::format_journal_name(None), None);
         assert_eq!(
@@ -1439,6 +1955,17 @@ mod tests {
             Deduplicator::format_journal_name(Some("Diabetologie und Stoffwechsel. Conference")),
             Some("diabetologieundstoffwechsel".to_string())
         );
+    }
+
+    #[test]
+    fn test_normalize_issue() {
+        assert_eq!(Deduplicator::normalize_issue("Issue 4"), "4".to_string());
+        assert_eq!(Deduplicator::normalize_issue("No. 4"), "4".to_string());
+        assert_eq!(
+            Deduplicator::normalize_issue("(Suppl 2)"),
+            "suppl2".to_string()
+        );
+        assert_eq!(Deduplicator::normalize_issue("S-1"), "s1".to_string());
     }
 
     #[test]
@@ -1568,7 +2095,7 @@ mod tests {
                 None,
                 Some("Journal"),
                 Some("6"),
-                None,
+                Some("70-80"),
                 None,
             ),
             make_citation(
@@ -1576,7 +2103,7 @@ mod tests {
                 Some(2020),
                 Some("Journal"),
                 Some("6"),
-                None,
+                Some("70-80"),
                 None,
             ),
         ];
@@ -1858,6 +2385,33 @@ mod tests {
     }
 
     #[test]
+    fn test_unicode_dash_pages_share_start_page_match() {
+        let citations = vec![
+            make_citation(
+                "Paged article",
+                Some(2020),
+                Some("Journal"),
+                None,
+                Some("1417‐1422"),
+                None,
+            ),
+            make_citation(
+                "Paged article",
+                Some(2020),
+                Some("Journal"),
+                None,
+                Some("1417-1422"),
+                None,
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
     fn test_default_year_tolerance_matches_adjacent_years_without_doi() {
         let citations = vec![
             make_citation(
@@ -1865,7 +2419,7 @@ mod tests {
                 Some(2020),
                 Some("Journal"),
                 Some("8"),
-                None,
+                Some("100-110"),
                 None,
             ),
             make_citation(
@@ -1873,7 +2427,7 @@ mod tests {
                 Some(2021),
                 Some("Journal"),
                 Some("8"),
-                None,
+                Some("100-110"),
                 None,
             ),
         ];
@@ -1898,7 +2452,7 @@ mod tests {
                 Some(2020),
                 Some("Journal"),
                 Some("9"),
-                None,
+                Some("200-210"),
                 None,
             ),
             make_citation(
@@ -1906,7 +2460,7 @@ mod tests {
                 Some(2022),
                 Some("Journal"),
                 Some("9"),
-                None,
+                Some("200-210"),
                 None,
             ),
         ];
@@ -1928,7 +2482,7 @@ mod tests {
                 None,
                 Some("Journal"),
                 Some("4"),
-                None,
+                Some("50-60"),
                 None,
             ),
             make_citation(
@@ -1936,8 +2490,257 @@ mod tests {
                 None,
                 Some("Journal"),
                 Some("4"),
+                Some("50-60"),
+                None,
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
+    fn test_issue_can_help_match_when_volume_matches_and_page_is_missing() {
+        let citations = vec![
+            with_issue(
+                make_citation(
+                    "Immune response study",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("12"),
+                    None,
+                    None,
+                ),
+                Some("Issue 4"),
+            ),
+            with_issue(
+                make_citation(
+                    "Immune response study",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("12"),
+                    None,
+                    None,
+                ),
+                Some("4"),
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
+    fn test_issue_mismatch_does_not_help_when_volume_and_page_are_missing() {
+        let citations = vec![
+            with_issue(
+                make_citation(
+                    "Immune response study",
+                    Some(2020),
+                    Some("Journal"),
+                    None,
+                    None,
+                    None,
+                ),
+                Some("4"),
+            ),
+            with_issue(
+                make_citation(
+                    "Immune response study",
+                    Some(2020),
+                    Some("Journal"),
+                    None,
+                    None,
+                    None,
+                ),
+                Some("5"),
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.duplicates.is_empty()));
+    }
+
+    #[test]
+    fn test_volume_only_fallback_requires_explicit_same_year() {
+        let citations = vec![
+            make_citation(
+                "Immune response study",
+                None,
+                Some("Journal"),
+                Some("12"),
                 None,
                 None,
+            ),
+            make_citation(
+                "Immune response study",
+                None,
+                Some("Journal"),
+                Some("12"),
+                None,
+                None,
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.duplicates.is_empty()));
+    }
+
+    #[test]
+    fn test_no_doi_rejects_when_issue_and_page_conflict_despite_volume_match() {
+        let citations = vec![
+            with_issue(
+                make_citation(
+                    "Shared study title",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("8"),
+                    Some("100-110"),
+                    None,
+                ),
+                Some("1"),
+            ),
+            with_issue(
+                make_citation(
+                    "Shared study title",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("8"),
+                    Some("120-130"),
+                    None,
+                ),
+                Some("2"),
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.duplicates.is_empty()));
+    }
+
+    #[test]
+    fn test_no_doi_volume_only_fallback_allows_missing_issue_and_page() {
+        let citations = vec![
+            with_issue(
+                make_citation(
+                    "Shared study title",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("8"),
+                    None,
+                    None,
+                ),
+                Some("1"),
+            ),
+            make_citation(
+                "Shared study title",
+                Some(2020),
+                Some("Journal"),
+                Some("8"),
+                None,
+                None,
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
+    fn test_no_doi_matches_with_volume_and_issue_when_page_missing() {
+        let citations = vec![
+            with_issue(
+                make_citation(
+                    "Shared study title",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("8"),
+                    None,
+                    None,
+                ),
+                Some("1"),
+            ),
+            with_issue(
+                make_citation(
+                    "Shared study title",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("8"),
+                    None,
+                    None,
+                ),
+                Some("Issue 1"),
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
+    fn test_no_doi_rejects_when_pages_conflict() {
+        let citations = vec![
+            make_citation(
+                "Shared study title",
+                Some(2020),
+                Some("Journal"),
+                None,
+                Some("100-110"),
+                None,
+            ),
+            make_citation(
+                "Shared study title",
+                Some(2020),
+                Some("Journal"),
+                None,
+                Some("120-130"),
+                None,
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.duplicates.is_empty()));
+    }
+
+    #[test]
+    fn test_no_doi_obvious_exact_duplicate_still_matches() {
+        let citations = vec![
+            with_issue(
+                make_citation(
+                    "Shared study title",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("8"),
+                    Some("100-110"),
+                    None,
+                ),
+                Some("1"),
+            ),
+            with_issue(
+                make_citation(
+                    "Shared study title",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("8"),
+                    Some("100-110"),
+                    None,
+                ),
+                Some("1"),
             ),
         ];
 
@@ -2028,6 +2831,39 @@ mod tests {
     }
 
     #[test]
+    fn test_series_guard_blocks_both_doi_matches_without_page_agreement() {
+        let citations = vec![
+            make_citation(
+                "Study part 1",
+                Some(2020),
+                Some("Journal"),
+                Some("5"),
+                Some("100-110"),
+                Some("10.1000/part1"),
+            ),
+            make_citation(
+                "Study part 2",
+                Some(2020),
+                Some("Journal"),
+                Some("5"),
+                Some("200-210"),
+                Some("10.1000/part2"),
+            ),
+        ];
+
+        let sim = strsim::jaro(
+            &Deduplicator::normalize_string(&citations[0].title),
+            &Deduplicator::normalize_string(&citations[1].title),
+        );
+        assert!(sim < 0.99, "unexpected both-doi series sim {sim}");
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.duplicates.is_empty()));
+    }
+
+    #[test]
     fn test_series_guard_does_not_trigger_for_identical_trailing_digits() {
         let citations = vec![
             make_citation(
@@ -2043,7 +2879,7 @@ mod tests {
                 Some(2024),
                 Some("Journal"),
                 Some("2"),
-                Some("40-42"),
+                Some("10-12"),
                 None,
             ),
         ];
@@ -2089,6 +2925,47 @@ mod tests {
     }
 
     #[test]
+    fn test_boilerplate_prefix_aware_title_similarity_can_recover_match() {
+        let citations = vec![
+            make_citation(
+                "Brief report. Kidney injury markers",
+                Some(2020),
+                Some("Journal"),
+                Some("7"),
+                None,
+                None,
+            ),
+            make_citation(
+                "Kidney injury markers",
+                Some(2020),
+                Some("Journal"),
+                Some("7"),
+                None,
+                None,
+            ),
+        ];
+
+        let deduplicator = Deduplicator::new();
+        let records = deduplicator.preprocess_citations(&citations);
+        let raw_similarity = strsim::jaro_winkler(&records[0].norm_title, &records[1].norm_title);
+        let effective_similarity =
+            Deduplicator::max_title_similarity(&records[0], &records[1], strsim::jaro_winkler);
+        assert!(
+            raw_similarity < NO_DOI_TITLE_SIMILARITY_THRESHOLD,
+            "expected raw similarity below threshold, got {raw_similarity}"
+        );
+        assert!(
+            effective_similarity >= NO_DOI_TITLE_SIMILARITY_THRESHOLD,
+            "expected stripped-title similarity to recover the match, got {effective_similarity}"
+        );
+
+        let groups = deduplicator.find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
     fn test_pass1_same_doi_without_other_metadata_still_matches() {
         let citations = vec![
             make_citation(
@@ -2100,7 +2977,7 @@ mod tests {
                 Some("10.1000/pass1"),
             ),
             make_citation(
-                "Observational study of renal biomarkers",
+                "Renal biomarker observational studies",
                 Some(2021),
                 None,
                 None,
@@ -2114,7 +2991,7 @@ mod tests {
             &Deduplicator::normalize_string(&citations[1].title),
         );
         assert!(
-            sim >= PASS1_DOI_TITLE_SANITY && sim < 0.9,
+            sim >= PASS1_DOI_TITLE_SANITY && sim < 0.99,
             "unexpected pass1 sim {sim}"
         );
 
@@ -2122,6 +2999,120 @@ mod tests {
 
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
+    fn test_pass1_same_doi_rescue_with_strong_corroboration() {
+        let citations = vec![
+            make_citation_with_author_and_doi(
+                "Renal biomarker study in adults",
+                "Smith",
+                Some(2020),
+                Some("Journal"),
+                Some("12"),
+                Some("100-110"),
+                Some("10.1000/rescue"),
+            ),
+            make_citation_with_author_and_doi(
+                "Observational study of renal biomarkers",
+                "Smith",
+                Some(2021),
+                Some("Journal"),
+                Some("12"),
+                Some("100-118"),
+                Some("10.1000/rescue"),
+            ),
+        ];
+
+        let sim = strsim::jaro(
+            &Deduplicator::normalize_string(&citations[0].title),
+            &Deduplicator::normalize_string(&citations[1].title),
+        );
+        assert!(
+            sim < PASS1_DOI_TITLE_SANITY,
+            "expected rescue similarity below pass1 sanity threshold, got {sim}"
+        );
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
+    fn test_pass1_same_doi_rescue_requires_no_author_conflict() {
+        let citations = vec![
+            make_citation_with_author_and_doi(
+                "Renal biomarker study in adults",
+                "Smith",
+                Some(2020),
+                Some("Journal"),
+                Some("12"),
+                Some("100-110"),
+                Some("10.1000/rescue-author"),
+            ),
+            make_citation_with_author_and_doi(
+                "Observational study of renal biomarkers",
+                "Jones",
+                Some(2021),
+                Some("Journal"),
+                Some("12"),
+                Some("100-118"),
+                Some("10.1000/rescue-author"),
+            ),
+        ];
+
+        let sim = strsim::jaro(
+            &Deduplicator::normalize_string(&citations[0].title),
+            &Deduplicator::normalize_string(&citations[1].title),
+        );
+        assert!(
+            sim < PASS1_DOI_TITLE_SANITY,
+            "expected rescue similarity below pass1 sanity threshold, got {sim}"
+        );
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.duplicates.is_empty()));
+    }
+
+    #[test]
+    fn test_pass1_same_doi_rescue_requires_page_corroboration() {
+        let citations = vec![
+            make_citation_with_author_and_doi(
+                "Renal biomarker study in adults",
+                "Smith",
+                Some(2020),
+                Some("Journal"),
+                Some("12"),
+                None,
+                Some("10.1000/rescue-metadata"),
+            ),
+            make_citation_with_author_and_doi(
+                "Observational study of renal biomarkers",
+                "Smith",
+                Some(2021),
+                Some("Journal"),
+                Some("12"),
+                None,
+                Some("10.1000/rescue-metadata"),
+            ),
+        ];
+
+        let sim = strsim::jaro(
+            &Deduplicator::normalize_string(&citations[0].title),
+            &Deduplicator::normalize_string(&citations[1].title),
+        );
+        assert!(
+            sim < PASS1_DOI_TITLE_SANITY,
+            "expected rescue similarity below pass1 sanity threshold, got {sim}"
+        );
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.duplicates.is_empty()));
     }
 
     #[test]
@@ -2152,7 +3143,7 @@ mod tests {
     }
 
     #[test]
-    fn test_doi_title_threshold_controls_both_doi_matching() {
+    fn test_conflicting_normalized_dois_are_not_duplicates() {
         let citations = vec![
             make_citation(
                 "Renal biomarker observational study",
@@ -2177,24 +3168,88 @@ mod tests {
             &Deduplicator::normalize_string(&citations[1].title),
         );
         assert!(
-            sim >= DEFAULT_BOTH_DOI_TITLE_THRESHOLD && sim < 0.99,
-            "unexpected doi-title sim {sim}"
+            sim >= 0.85 && sim < 0.99,
+            "unexpected conflicting-doi sim {sim}"
         );
 
-        let default_groups = Deduplicator::new().find_duplicates(&citations);
-        assert_eq!(default_groups.len(), 1);
-        assert_eq!(default_groups[0].duplicates, vec![1]);
-
-        let strict_groups = Deduplicator::builder()
-            .doi_title_threshold(0.99)
-            .build()
-            .find_duplicates(&citations);
-        assert_eq!(strict_groups.len(), 2);
         assert!(
-            strict_groups
+            Deduplicator::new()
+                .find_duplicates(&citations)
                 .iter()
                 .all(|group| group.duplicates.is_empty())
         );
+    }
+
+    #[test]
+    fn test_bracketed_translated_title_can_match_with_strict_metadata() {
+        let citations = vec![
+            with_issue(
+                with_issn(
+                    make_citation_with_author(
+                        "[Translated title of the study]",
+                        "Keyriläinen",
+                        Some(2020),
+                        Some("Journal"),
+                        Some("5"),
+                        Some("100-110"),
+                    ),
+                    &["1234-5678"],
+                ),
+                Some("2"),
+            ),
+            with_issue(
+                with_issn(
+                    make_citation_with_author(
+                        "Titulo original del estudio",
+                        "Keyrilainen",
+                        Some(2020),
+                        Some("Journal"),
+                        Some("5"),
+                        Some("100-110"),
+                    ),
+                    &["1234-5678"],
+                ),
+                Some("2"),
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
+    fn test_bracketed_translated_title_requires_full_metadata_agreement() {
+        let citations = vec![
+            with_issue(
+                make_citation_with_author(
+                    "[Translated title of the study]",
+                    "Keyriläinen",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("5"),
+                    Some("100-110"),
+                ),
+                Some("2"),
+            ),
+            with_issue(
+                make_citation_with_author(
+                    "Titulo original del estudio",
+                    "Keyrilainen",
+                    Some(2020),
+                    Some("Journal"),
+                    Some("5"),
+                    Some("100-110"),
+                ),
+                Some("3"),
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.duplicates.is_empty()));
     }
 
     #[test]
@@ -2416,11 +3471,5 @@ mod tests {
     #[should_panic(expected = "within (0.0, 1.0]")]
     fn test_builder_panics_on_threshold_above_one() {
         let _ = Deduplicator::builder().no_doi_title_threshold(1.5).build();
-    }
-
-    #[test]
-    #[should_panic(expected = "less than or equal to exact_title_threshold")]
-    fn test_builder_panics_when_doi_threshold_exceeds_exact_threshold() {
-        let _ = Deduplicator::builder().doi_title_threshold(0.995).build();
     }
 }

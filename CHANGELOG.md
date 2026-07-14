@@ -9,31 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
-- **Index-based duplicate groups**: `DuplicateGroup` now stores indices into the input slice (`unique: usize`, `duplicates: Vec<usize>`) instead of owned `Citation` values.
-- **Infallible dedupe methods**: `Deduplicator` methods now take `&self` and return results directly. `DedupeError` has been removed.
-- **Builder-based configuration**: `DeduplicatorConfig`, `with_config()`, `group_by_year`, and `run_in_parallel` were removed in favor of `Deduplicator::builder()`.
-- **Sources are now permissive**: `find_duplicates_with_sources()` ignores extra `sources` entries instead of treating them as an error.
-- **Feature-gated duplicate-group type**: `DuplicateGroup` is now only exported when the `dedupe` feature is enabled.
+- **Deduplication API redesign**: `DuplicateGroup` now stores indices into the input slice (`unique: usize`, `duplicates: Vec<usize>`) instead of owned `Citation` values.
+- **Dedupe methods are now infallible**: `Deduplicator` methods take `&self` and return results directly. `DedupeError` has been removed.
+- **Builder replaces config struct**: `DeduplicatorConfig`, `with_config()`, `group_by_year`, and `run_in_parallel` were removed in favor of `Deduplicator::builder()`.
+- **Source slices are now permissive**: `find_duplicates_with_sources()` ignores extra `sources` entries instead of returning an error.
+- **`DuplicateGroup` is feature-gated**: the type is now only exported when the `dedupe` feature is enabled.
 
 ### Changed
 
-- **Deduplication-focused release**: `0.8.0` is centered on the dedupe engine and public deduplication API rewrite.
-- **Cross-year fuzzy matching**: pass-2 matching now derives its blocking and compatibility window from `year_tolerance`, with the default allowing matches within plus or minus 1 year.
-- **Defensive normalization**: DOI and page comparisons now re-normalize user-constructed `Citation` values before matching.
-- **Missing and empty-field handling**: empty titles no longer abort deduplication, and empty-string journals no longer count as matching journals.
-- **Transitive clustering**: duplicate detection now uses union-find clustering, so transitive matches join the same component.
-- **Deterministic output ordering**: groups are sorted by smallest member index, duplicate indices are sorted ascending, and parallel matching produces the same final groups as sequential matching.
+- **Deduplication-focused release**: `0.8.0` is centered on a full dedupe-engine rewrite and the public deduplication API.
+- **Matching engine overhaul**: dedupe now uses DOI bucketing plus blocked fuzzy matching backed by union-find clustering, with pass-2 blocking and cross-year compatibility derived from `year_tolerance` and a default plus-or-minus 1 year window.
+- **Safer duplicate decisions**: matching normalized DOIs are clustered in pass 1, conflicting normalized DOIs are treated as a hard negative, same-DOI pairs have a stricter rescue path, and borderline matches are guarded by series/erratum and first-author checks.
+- **Stricter no-DOI publication logic**: the missing-DOI fuzzy path now uses tiered publication evidence (`page`, then `volume + issue`, then a same-year sparse `volume` fallback only when issue and page are missing) and treats contradictory page or issue metadata as negative evidence.
+- **Broader defensive normalization**: dedupe now re-normalizes user-built citations before matching and more aggressively normalizes titles, journals, pages, authors, DOI variants, issues, and no-pagination placeholders to improve recall without relaxing conflicting-DOI behavior.
+- **More predictable output**: empty titles no longer abort deduplication, empty-string journals no longer count as matching journals, every input index appears in exactly one deterministic group, and parallel matching now yields the same final grouping as sequential matching.
+- **Shared page normalization effect**: because `format_page_numbers()` is reused by parsers, parser-emitted `Citation.pages` now also normalize common Unicode dash variants to ASCII `-`.
 
 ### Added
 
-- **Configurable thresholds**: the builder now exposes `doi_title_threshold`, `no_doi_title_threshold`, and `exact_title_threshold` with validation.
-- **Series and erratum guard**: title suffixes that look like numbered series parts now require matching start pages for borderline fuzzy matches.
-- **First-author guard**: borderline fuzzy matches are rejected when normalized first-author surnames disagree.
-- **Owned result helpers**: `OwnedDuplicateGroup`, `find_duplicates_cloned()`, and `find_duplicates_with_sources_cloned()` provide a migration path for callers that still want owned `Citation` results.
+- **Builder validation and tuning knobs**: `Deduplicator::builder()` now exposes `no_doi_title_threshold(...)` and `exact_title_threshold(...)` with validation.
+- **Owned-result migration helpers**: `OwnedDuplicateGroup`, `find_duplicates_cloned()`, and `find_duplicates_with_sources_cloned()` preserve an owned-result path for callers migrating from 0.7-style usage.
+- **Additional conservative match signals**: dedupe now incorporates normalized issue metadata and a narrowly gated metadata-only path for fully bracketed translated-title records.
 
 ### Migration Notes
 
-#### `DuplicateGroup` result handling
+#### `DuplicateGroup` now contains indices, not owned citations
 
 If you previously treated `DuplicateGroup` as an owned group of `Citation`
 values, update that code to treat `unique` and `duplicates` as indices into
@@ -65,7 +65,7 @@ for &duplicate_idx in &group.duplicates {
 If you still want owned `Citation` values in the result, use
 `find_duplicates_cloned()` or `find_duplicates_with_sources_cloned()`.
 
-#### Deduplicator configuration
+#### Replace `DeduplicatorConfig` with the builder
 
 Replace `DeduplicatorConfig` and `with_config()` with
 `Deduplicator::builder()`:
@@ -92,11 +92,10 @@ let groups = Deduplicator::builder()
 ```
 
 Use the builder's `year_tolerance(...)`, `parallel(...)`,
-`source_preferences(...)`, `doi_title_threshold(...)`,
-`no_doi_title_threshold(...)`, and `exact_title_threshold(...)` methods to
-configure the deduplicator.
+`source_preferences(...)`, `no_doi_title_threshold(...)`, and
+`exact_title_threshold(...)` methods to configure the deduplicator.
 
-#### Error handling
+#### Remove dedupe-specific error handling
 
 Deduplication methods are now infallible. Remove `DedupeError` handling and
 dedupe-specific `unwrap()` calls:
@@ -111,6 +110,24 @@ let groups = deduplicator.find_duplicates(&citations);
 
 `find_duplicates_with_sources()` also now tolerates `sources` slices that are
 longer than `citations`; extra source entries are ignored.
+
+#### Feature-gated imports
+
+If you import `DuplicateGroup` directly, make sure the `dedupe` feature is
+enabled for your dependency on `biblib`.
+
+#### Expect slightly different normalization outcomes
+
+`0.8.0` intentionally tightens and broadens normalization in the dedupe
+engine. In practice this means:
+
+- more DOI variants normalize to the same key
+- more title variants normalize to the same comparison form
+- no-pagination placeholders are treated as missing rather than contradictory
+- page ranges using Unicode dash variants now normalize to ASCII `-`
+
+If you snapshot dedupe groups or parser-emitted page strings in tests, expect
+some outputs to shift accordingly.
 
 ## [0.7.2] - 2026-07-10
 
