@@ -1,6 +1,6 @@
 [package]
 name = "biblib"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 description = "Parse, manage, and deduplicate academic citations"
 authors = ["Ali Azlan <aliazlanofficial@gmail.com>"]
@@ -39,3 +39,8 @@ unicode-normalization = { version = "0.1.24", optional = true }
 [dev-dependencies]
 pretty_assertions = "1.4.1"
 rstest = { version = "0.26.0", default-features = false }
+
+[[bench]]
+name = "dedupe"
+harness = false
+required-features = ["dedupe"]
