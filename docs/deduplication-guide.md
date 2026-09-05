@@ -184,6 +184,14 @@ records are placed into year-based blocks derived from `year_tolerance`.
 | `page_match` | Both normalized start pages are present and equal |
 | `year_compatible` | `true` when years differ by at most `year_tolerance`, or either side is missing |
 
+#### Metadata Prechecks
+
+Before calculating Jaro or Jaro-Winkler title similarity, pass 2 evaluates the
+required year and publication-metadata conditions. Pairs that cannot satisfy
+any existing match path are rejected without an expensive fuzzy-title
+comparison. This changes evaluation order only; it does not change thresholds
+or matching criteria.
+
 #### When Both Records Have Normalized DOIs
 
 - Matching normalized DOIs are handled in pass 1.
@@ -337,3 +345,19 @@ The old `DeduplicatorConfig`, `with_config()`, `group_by_year`, and
 
 Deduplication methods are now infallible. Overlong `sources` input is
 tolerated and truncated logically instead of returning an error.
+
+
+## Benchmarking
+
+The repository includes a synthetic benchmark for the metadata-rejected fuzzy
+workload optimized in `0.8.1`:
+
+```console
+cargo bench --bench dedupe
+```
+
+The default benchmark generates 750 near-title records whose publication
+metadata prevents a match. Set `BIBLIB_BENCH_RECORDS` to change the input size.
+The benchmark verifies that every record remains a singleton and reports
+sequential and parallel median runtimes. It is intended for comparing builds
+on the same machine, not as a cross-machine performance guarantee.

@@ -779,15 +779,18 @@ impl Deduplicator {
                 true
             }
             (Some(_), Some(_)) => {
+                let metadata_match =
+                    year_compatible && doi_publication_match && journal_or_issn_match;
+                if !metadata_match {
+                    return false;
+                }
+
                 let sim = Self::max_title_similarity(left, right, jaro);
                 if !Self::passes_author_guard(left, right, sim) {
                     return false;
                 }
 
-                let matches = sim >= self.exact_title_threshold
-                    && year_compatible
-                    && doi_publication_match
-                    && journal_or_issn_match;
+                let matches = sim >= self.exact_title_threshold;
 
                 if !matches {
                     return false;
@@ -814,11 +817,6 @@ impl Deduplicator {
                     return false;
                 }
 
-                let sim = Self::max_title_similarity(left, right, jaro_winkler);
-                if !Self::passes_author_guard(left, right, sim) {
-                    return false;
-                }
-
                 let publication_match = Self::no_doi_publication_match(
                     left,
                     right,
@@ -827,14 +825,20 @@ impl Deduplicator {
                     page_match,
                     same_year,
                 );
-                let matches = (sim >= self.no_doi_title_threshold
-                    && year_compatible
-                    && publication_match
-                    && journal_or_issn_match)
-                    || (sim >= self.exact_title_threshold
-                        && year_compatible
-                        && volume_match
-                        && page_match);
+                let standard_metadata_match =
+                    year_compatible && publication_match && journal_or_issn_match;
+                let exact_title_metadata_match = year_compatible && volume_match && page_match;
+                if !(standard_metadata_match || exact_title_metadata_match) {
+                    return false;
+                }
+
+                let sim = Self::max_title_similarity(left, right, jaro_winkler);
+                if !Self::passes_author_guard(left, right, sim) {
+                    return false;
+                }
+
+                let matches = (sim >= self.no_doi_title_threshold && standard_metadata_match)
+                    || (sim >= self.exact_title_threshold && exact_title_metadata_match);
 
                 if !matches {
                     return false;
@@ -2751,6 +2755,33 @@ mod tests {
     }
 
     #[test]
+    fn test_metadata_precheck_preserves_exact_title_fallback_without_journal() {
+        let citations = vec![
+            make_citation(
+                "Shared study title",
+                Some(2020),
+                None,
+                Some("8"),
+                Some("100-110"),
+                None,
+            ),
+            make_citation(
+                "Shared study title",
+                Some(2020),
+                None,
+                Some("8"),
+                Some("100-110"),
+                None,
+            ),
+        ];
+
+        let groups = Deduplicator::new().find_duplicates(&citations);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].duplicates, vec![1]);
+    }
+
+    #[test]
     fn test_transitivity_groups_three_records() {
         let citations = vec![
             make_citation(
@@ -2991,7 +3022,7 @@ mod tests {
             &Deduplicator::normalize_string(&citations[1].title),
         );
         assert!(
-            sim >= PASS1_DOI_TITLE_SANITY && sim < 0.99,
+            (PASS1_DOI_TITLE_SANITY..0.99).contains(&sim),
             "unexpected pass1 sim {sim}"
         );
 
@@ -3168,7 +3199,7 @@ mod tests {
             &Deduplicator::normalize_string(&citations[1].title),
         );
         assert!(
-            sim >= 0.85 && sim < 0.99,
+            (0.85..0.99).contains(&sim),
             "unexpected conflicting-doi sim {sim}"
         );
 
