@@ -2,6 +2,7 @@
 name = "biblib"
 version = "0.8.1"
 edition = "2024"
+rust-version = "1.88"
 description = "Parse, manage, and deduplicate academic citations"
 authors = ["Ali Azlan <aliazlanofficial@gmail.com>"]
 license = "MIT OR Apache-2.0"

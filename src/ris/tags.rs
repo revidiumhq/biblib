@@ -1,7 +1,7 @@
 //! RIS format tags and their definitions.
 //!
 //! This module defines all the standard RIS tags used in bibliographic citations.
-//! See: http://en.wikipedia.org/wiki/RIS_(file_format)
+//! See: <https://en.wikipedia.org/wiki/RIS_(file_format)>
 
 /// RIS format tags.
 ///

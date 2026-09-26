@@ -1,15 +1,32 @@
+#[cfg(any(
+    feature = "csv",
+    feature = "xml",
+    feature = "ris",
+    feature = "enw",
+    feature = "bib",
+    feature = "pubmed"
+))]
 use crate::Date;
-use crate::regex::Regex;
-use std::sync::LazyLock;
 
-static ISSN_SPLIT_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\d{4}-\d{3}[\dX](?:\s*\([^)]+\))?").unwrap());
+#[cfg(any(feature = "csv", feature = "xml", feature = "enw", feature = "bib"))]
+static ISSN_SPLIT_REGEX: std::sync::LazyLock<crate::regex::Regex> =
+    std::sync::LazyLock::new(|| {
+        crate::regex::Regex::new(r"\d{4}-\d{3}[\dX](?:\s*\([^)]+\))?").unwrap()
+    });
 
 /// Formats page numbers consistently, handling partial end page numbers
 ///
 /// # Arguments
 ///
 /// * `page_str` - The page string to format
+#[cfg(any(
+    feature = "csv",
+    feature = "xml",
+    feature = "ris",
+    feature = "enw",
+    feature = "bib",
+    feature = "dedupe"
+))]
 pub fn format_page_numbers(page_range: &str) -> String {
     let normalized_page_range: String = page_range.chars().map(normalize_page_dash).collect();
 
@@ -66,6 +83,14 @@ pub fn format_page_numbers(page_range: &str) -> String {
     )
 }
 
+#[cfg(any(
+    feature = "csv",
+    feature = "xml",
+    feature = "ris",
+    feature = "enw",
+    feature = "bib",
+    feature = "dedupe"
+))]
 fn normalize_page_dash(ch: char) -> char {
     match ch {
         '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2212}'
@@ -75,6 +100,14 @@ fn normalize_page_dash(ch: char) -> char {
 }
 
 /// Helper function to split a page number into prefix and numeric part
+#[cfg(any(
+    feature = "csv",
+    feature = "xml",
+    feature = "ris",
+    feature = "enw",
+    feature = "bib",
+    feature = "dedupe"
+))]
 fn split_prefix_and_number(input: &str) -> (String, Option<String>) {
     // Find the first numeric character
     match input.find(|c: char| c.is_ascii_digit()) {
@@ -95,6 +128,14 @@ fn split_prefix_and_number(input: &str) -> (String, Option<String>) {
 /// # Arguments
 ///
 /// * `doi_str` - The DOI string to format
+#[cfg(any(
+    feature = "csv",
+    feature = "xml",
+    feature = "ris",
+    feature = "enw",
+    feature = "bib",
+    feature = "dedupe"
+))]
 pub fn format_doi(doi_str: &str) -> Option<String> {
     if doi_str.is_empty() {
         return None;
@@ -112,6 +153,14 @@ pub fn format_doi(doi_str: &str) -> Option<String> {
     }
 }
 
+#[cfg(any(
+    feature = "csv",
+    feature = "xml",
+    feature = "ris",
+    feature = "enw",
+    feature = "bib",
+    feature = "dedupe"
+))]
 fn percent_decode(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
@@ -137,6 +186,14 @@ fn percent_decode(input: &str) -> String {
     String::from_utf8(decoded).unwrap_or_else(|_| input.to_string())
 }
 
+#[cfg(any(
+    feature = "csv",
+    feature = "xml",
+    feature = "ris",
+    feature = "enw",
+    feature = "bib",
+    feature = "dedupe"
+))]
 fn from_hex_digit(value: u8) -> Option<u8> {
     match value {
         b'0'..=b'9' => Some(value - b'0'),
@@ -146,6 +203,14 @@ fn from_hex_digit(value: u8) -> Option<u8> {
     }
 }
 
+#[cfg(any(
+    feature = "csv",
+    feature = "xml",
+    feature = "ris",
+    feature = "enw",
+    feature = "bib",
+    feature = "dedupe"
+))]
 fn strip_doi_trailing_noise(doi: &str) -> String {
     let mut cleaned = doi.trim().to_string();
 
@@ -163,6 +228,14 @@ fn strip_doi_trailing_noise(doi: &str) -> String {
     cleaned
 }
 
+#[cfg(any(
+    feature = "csv",
+    feature = "xml",
+    feature = "ris",
+    feature = "enw",
+    feature = "bib",
+    feature = "dedupe"
+))]
 fn trim_unmatched_trailing_parens(doi: &str) -> String {
     let mut cleaned = doi.to_string();
     while cleaned.ends_with(')')
@@ -180,6 +253,7 @@ fn trim_unmatched_trailing_parens(doi: &str) -> String {
 /// # Arguments
 ///
 /// * `issns` - String containing one or more ISSNs, possibly separated by newlines
+#[cfg(any(feature = "csv", feature = "xml", feature = "enw", feature = "bib"))]
 pub fn split_issns(issns: &str) -> Vec<String> {
     let normalized = issns
         .replace("\\r\\n", "\n")
@@ -205,6 +279,7 @@ pub fn split_issns(issns: &str) -> Vec<String> {
 }
 
 /// Helper function to parse author names in various formats
+#[cfg(any(feature = "csv", feature = "xml", feature = "ris", feature = "enw"))]
 pub fn parse_author_name(name: &str) -> (String, String) {
     // Handle formats like "Lastname, Firstname", "Lastname, FN", or "Lastname FN"
     let parts: Vec<&str> = if name.contains(',') {
@@ -234,6 +309,14 @@ pub fn parse_author_name(name: &str) -> (String, String) {
 /// Returns a tuple of (given_name, middle_name), where each is Option<String>.
 /// The first token becomes the given_name; remaining tokens (if any) are joined
 /// with a single space and become the middle_name.
+#[cfg(any(
+    feature = "csv",
+    feature = "pubmed",
+    feature = "xml",
+    feature = "ris",
+    feature = "enw",
+    feature = "bib"
+))]
 pub fn split_given_and_middle(full_given: &str) -> (Option<String>, Option<String>) {
     let trimmed = full_given.trim();
     if trimmed.is_empty() {
@@ -255,6 +338,7 @@ pub fn split_given_and_middle(full_given: &str) -> (Option<String>, Option<Strin
 /// # Arguments
 ///
 /// * `date_str` - The date string to parse
+#[cfg(any(feature = "pubmed", feature = "enw"))]
 pub fn parse_pubmed_date(date_str: &str) -> Option<Date> {
     let date_str = date_str.trim();
 
@@ -295,6 +379,7 @@ pub fn parse_pubmed_date(date_str: &str) -> Option<Date> {
 /// # Arguments
 ///
 /// * `date_str` - The date string to parse
+#[cfg(any(feature = "ris", feature = "enw"))]
 pub fn parse_ris_date(date_str: &str) -> Option<Date> {
     let date_str = date_str.trim();
 
@@ -346,6 +431,7 @@ pub fn parse_ris_date(date_str: &str) -> Option<Date> {
 /// * `year` - Year value
 /// * `month` - Month value (optional)
 /// * `day` - Day value (optional)
+#[cfg(feature = "xml")]
 pub fn parse_endnote_date(year: Option<i32>, month: Option<u8>, day: Option<u8>) -> Option<Date> {
     let year = year?;
     Some(Date { year, month, day })
@@ -359,6 +445,7 @@ pub fn parse_endnote_date(year: Option<i32>, month: Option<u8>, day: Option<u8>)
 /// - `YYYY-MM-DD`
 /// - `YYYY Mon DD`
 /// - `Mon DD, YYYY`
+#[cfg(feature = "enw")]
 pub fn parse_enw_date(date_str: &str) -> Option<Date> {
     let date_str = date_str.trim();
     if date_str.is_empty() {
@@ -380,6 +467,7 @@ pub fn parse_enw_date(date_str: &str) -> Option<Date> {
 /// - `YYYY/MM`
 /// - `YYYY-MM-DD`
 /// - `YYYY/MM/DD`
+#[cfg(feature = "bib")]
 pub fn parse_bib_date(date_str: &str) -> Option<Date> {
     let trimmed = date_str.trim();
     if trimmed.is_empty() {
@@ -421,6 +509,7 @@ pub fn parse_bib_date(date_str: &str) -> Option<Date> {
 }
 
 /// Parses a year and month pair from BibTeX / BibLaTeX fields.
+#[cfg(feature = "bib")]
 pub fn parse_bib_year_month(year_str: &str, month_str: &str) -> Option<Date> {
     let year = parse_year_only(year_str)?.year;
     let month = parse_bib_month_token(month_str.trim())?;
@@ -437,6 +526,7 @@ pub fn parse_bib_year_month(year_str: &str, month_str: &str) -> Option<Date> {
 /// # Arguments
 ///
 /// * `year_str` - The year string to parse
+#[cfg(any(feature = "csv", feature = "bib", feature = "enw"))]
 pub fn parse_year_only(year_str: &str) -> Option<Date> {
     let year_str = year_str.trim();
 
@@ -457,6 +547,7 @@ pub fn parse_year_only(year_str: &str) -> Option<Date> {
 }
 
 /// Helper function to parse month names to month numbers
+#[cfg(any(feature = "bib", feature = "enw", feature = "pubmed"))]
 fn parse_month_name(month_str: &str) -> Option<u8> {
     match month_str.to_lowercase().as_str() {
         "jan" | "january" => Some(1),
@@ -475,6 +566,7 @@ fn parse_month_name(month_str: &str) -> Option<u8> {
     }
 }
 
+#[cfg(feature = "bib")]
 fn parse_bib_month_token(month_str: &str) -> Option<u8> {
     if let Ok(month) = month_str.parse::<u8>() {
         return (1..=12).contains(&month).then_some(month);
@@ -483,6 +575,7 @@ fn parse_bib_month_token(month_str: &str) -> Option<u8> {
     parse_month_name(month_str)
 }
 
+#[cfg(feature = "enw")]
 fn parse_iso_like_date(date_str: &str) -> Option<Date> {
     let normalized = date_str.trim();
     let delimiter = if normalized.contains('-') {
@@ -515,6 +608,7 @@ fn parse_iso_like_date(date_str: &str) -> Option<Date> {
     })
 }
 
+#[cfg(feature = "enw")]
 fn parse_month_day_year_date(date_str: &str) -> Option<Date> {
     let normalized = date_str.replace(',', " ");
     let parts: Vec<&str> = normalized.split_whitespace().collect();
@@ -538,6 +632,7 @@ fn parse_month_day_year_date(date_str: &str) -> Option<Date> {
 }
 
 /// get the newline delimiter (e.g. CRLF for Windows, LF for Linux). of multi-line text.
+#[cfg(feature = "pubmed")]
 pub(crate) fn newline_delimiter_of(text: &str) -> &'static str {
     // find the first '\n', then check whether the character before it is '\r'
     if text

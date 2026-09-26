@@ -188,6 +188,7 @@ pub use pubmed::PubMedParser;
 #[cfg(feature = "ris")]
 pub use ris::RisParser;
 
+#[cfg(any(feature = "csv", feature = "xml"))]
 mod ictrp;
 mod regex;
 mod utils;
