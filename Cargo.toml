@@ -39,6 +39,7 @@ unicode-normalization = { version = "0.1.24", optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+proptest = "1.11.0"
 rstest = { version = "0.26.0", default-features = false }
 
 [[bench]]

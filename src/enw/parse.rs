@@ -293,11 +293,9 @@ fn parse_enw_line(
         .with_span(SourceSpan::new(line_start, line_end)));
     }
 
-    let value = if line.len() <= 2 {
-        String::new()
-    } else {
-        line[3..].trim().to_string()
-    };
+    // `chars` has consumed `%`, the tag and the separator; slicing by byte
+    // offset would panic when the tag is multi-byte.
+    let value = chars.as_str().trim().to_string();
 
     Ok((EnwTag::from_code(tag_char), value))
 }

@@ -3,20 +3,13 @@
 //! This module provides the core parsing logic for EndNote XML format.
 
 use crate::error::{ParseError, SourceSpan, ValueError};
+use crate::utils::buffer_position_to_line_number;
 use crate::{Author, Citation, CitationFormat};
 use quick_xml::Reader;
 use quick_xml::XmlVersion;
 use quick_xml::events::Event;
 use quick_xml::name::QName;
 use std::io::BufRead;
-
-/// Convert buffer position to approximate line number
-fn buffer_position_to_line_number(content: &str, pos: usize) -> usize {
-    if pos >= content.len() {
-        return content.lines().count();
-    }
-    content[..pos].lines().count()
-}
 
 /// Enhanced extract_text function that tracks line numbers for better error reporting
 fn extract_text_with_position<B: BufRead>(
