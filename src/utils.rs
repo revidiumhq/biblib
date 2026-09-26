@@ -65,10 +65,10 @@ pub fn format_page_numbers(page_range: &str) -> String {
     };
 
     // If to number is shorter, use from's prefix/digits
-    let completed_to = if to_num.len() < from_num.len() {
-        format!("{}{}", &from_num[..from_num.len() - to_num.len()], to_num)
-    } else {
-        to_num.to_string()
+    // `get` avoids panicking when the cut falls inside a multi-byte character.
+    let completed_to = match from_num.get(..from_num.len().saturating_sub(to_num.len())) {
+        Some(head) if to_num.len() < from_num.len() => format!("{}{}", head, to_num),
+        _ => to_num.to_string(),
     };
 
     // If both numbers are the same after completion, return just one number
@@ -631,6 +631,23 @@ fn parse_month_day_year_date(date_str: &str) -> Option<Date> {
     })
 }
 
+/// Converts a byte offset from the XML reader into an approximate line number.
+///
+/// The offset is rounded down to a char boundary so a position inside a
+/// multi-byte character cannot panic.
+#[cfg(feature = "xml")]
+pub(crate) fn buffer_position_to_line_number(content: &str, pos: usize) -> usize {
+    if pos >= content.len() {
+        return content.lines().count();
+    }
+
+    let mut pos = pos;
+    while !content.is_char_boundary(pos) {
+        pos -= 1;
+    }
+    content[..pos].lines().count()
+}
+
 /// get the newline delimiter (e.g. CRLF for Windows, LF for Linux). of multi-line text.
 #[cfg(feature = "pubmed")]
 pub(crate) fn newline_delimiter_of(text: &str) -> &'static str {
@@ -1041,5 +1058,22 @@ mod tests {
         assert_eq!(newline_delimiter_of("\nhello\nworld\n"), "\n");
         assert_eq!(newline_delimiter_of("hello\r\nworld"), "\r\n");
         assert_eq!(newline_delimiter_of("hello\r\nworld\r\n"), "\r\n");
+    }
+
+    #[test]
+    fn test_format_page_numbers_multibyte_does_not_panic() {
+        assert_eq!(format_page_numbers("12é-3"), "12é-3");
+        assert_eq!(format_page_numbers("1𐖁-1"), "1𐖁-1");
+    }
+
+    #[test]
+    fn test_buffer_position_inside_multibyte_char() {
+        let content = "\u{feff}<a>\n漢字\n</a>";
+        for pos in 0..=content.len() {
+            buffer_position_to_line_number(content, pos);
+        }
+        assert_eq!(buffer_position_to_line_number(content, 1), 0);
+        // Inside '漢' rounds down to the start of the second line.
+        assert_eq!(buffer_position_to_line_number(content, 9), 1);
     }
 }

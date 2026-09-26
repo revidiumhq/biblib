@@ -8,6 +8,7 @@ use crate::error::{ParseError, SourceSpan, ValueError, fields};
 use crate::ictrp::{
     dedupe_urls, is_ictrp_url_field, parse_ictrp_compact_date, parse_ictrp_standard_date,
 };
+use crate::utils::buffer_position_to_line_number;
 use crate::{Citation, CitationFormat, CitationParser};
 use quick_xml::Reader;
 use quick_xml::escape::unescape;
@@ -413,14 +414,6 @@ fn xml_error(content: &str, start_pos: usize, end_pos: usize, detail: String) ->
         ValueError::Syntax(format!("XML parsing error: {}", detail)),
     )
     .with_span(SourceSpan::new(start_pos, end_pos))
-}
-
-fn buffer_position_to_line_number(content: &str, pos: usize) -> usize {
-    if pos >= content.len() {
-        return content.lines().count();
-    }
-
-    content[..pos].lines().count()
 }
 
 fn extract_text_with_position<B: BufRead>(
