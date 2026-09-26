@@ -190,7 +190,21 @@ fn classify_ris_line(line: &str) -> RisLineKind {
         return RisLineKind::Invalid;
     }
 
+    if is_indented_record_boundary(line) {
+        return RisLineKind::Tag;
+    }
+
     RisLineKind::Continuation
+}
+
+/// Detects an indented `TY` or `ER` line so a record boundary is not swallowed
+/// as a continuation. Requires the strict `  -` separator to avoid splitting
+/// on prose such as "ER-positive".
+fn is_indented_record_boundary(line: &str) -> bool {
+    let bytes = line.trim_start().as_bytes();
+    (bytes.starts_with(b"TY") || bytes.starts_with(b"ER"))
+        && bytes.len() >= 5
+        && &bytes[2..5] == b"  -"
 }
 
 fn has_valid_tag_prefix(bytes: &[u8]) -> bool {
@@ -629,5 +643,40 @@ ER  -"#;
         assert_eq!(keyword, "analysis of variance");
         assert_eq!(result[0].ignored_lines.len(), 1);
         assert_eq!(result[0].ignored_lines[0].1, "!!  - invalid");
+    }
+
+    #[test]
+    fn test_missing_er_before_indented_ty_starts_new_record() {
+        let input =
+            "TY  - JOUR\nTI  - First\nAB  - Abstract text\n  TY  - BOOK\nTI  - Second\nER  -\n";
+        let result = ris_parse(input).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].get_first(&RisTag::Title).unwrap(), "First");
+        assert_eq!(
+            result[0].get_first(&RisTag::Abstract).unwrap(),
+            "Abstract text"
+        );
+        assert_eq!(result[1].get_first(&RisTag::Type).unwrap(), "BOOK");
+        assert_eq!(result[1].get_first(&RisTag::Title).unwrap(), "Second");
+    }
+
+    #[test]
+    fn test_indented_er_closes_record() {
+        let input = "TY  - JOUR\nTI  - First\n  ER  -\nTY  - BOOK\nTI  - Second\nER  -\n";
+        let result = ris_parse(input).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].get_first(&RisTag::Title).unwrap(), "First");
+        assert_eq!(result[1].get_first(&RisTag::Title).unwrap(), "Second");
+    }
+
+    #[test]
+    fn test_indented_er_prose_stays_continuation() {
+        let input = "TY  - JOUR\nTI  - Test\nAB  - Patients with\n  ER-positive tumours were included.\nER  -\n";
+        let result = ris_parse(input).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].get_first(&RisTag::Abstract).unwrap(),
+            "Patients with ER-positive tumours were included."
+        );
     }
 }
