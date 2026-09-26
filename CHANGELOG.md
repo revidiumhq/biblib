@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **EndNote XML text**: entity and character references (`&amp;`, `&#x3B1;`) and CDATA sections were dropped from field text, and spaces between inline `<style>` runs were lost, so `<style>Effect of </style><style>vitamin D</style>` read as `Effect ofvitamin D`. Text is now collected in full and trimmed once per field. An unsupported entity reference is now a syntax error, as in the ICTRP XML parser.
+- **EndNote XML truncated records**: input ending inside a `<record>` or `<dates>` element was accepted silently; it is now an "Unexpected EOF" error, like truncation inside a field.
+- **EndNote XML date attributes**: `year`, `month` and `day` attribute values are now unescaped like other attributes.
+- **Panic on ICTRP compact dates**: an 8-byte `Date_registration3` value containing a multi-byte character (e.g. `202é050`) panicked; it is now treated as an invalid date.
+- **Byte order marks**: a leading BOM is now ignored consistently. It hid the first record in ENW files, dropped the first line (usually `PMID`) of PubMed files, was a syntax error in BibTeX, shifted every error position by 3 bytes in EndNote XML and ICTRP XML, and stopped `detect_and_parse` from recognising RIS, PubMed and EndNote XML files.
+- **PubMed empty records**: leading blank lines and chunks without any tag no longer produce empty citations.
+- **CSV line numbers**: record line numbers and error lines were one low in CRLF files, ignored blank lines, and ignored quoted fields spanning several lines. They now match the source, and record byte offsets point at the record itself.
+- **CSV configuration errors**: when a `CsvConfig` has several problems, `validate()` now always reports the same one; it depended on `HashMap` iteration order.
+- **BibTeX stack overflow**: `crossref` / `xdata` chains and `@string` macro chains are followed at most 64 levels deep, so deeply nested files can no longer overflow the stack.
+- **BibTeX performance**: entry line numbers were found by rescanning the input from the start, making parsing quadratic in the number of entries (a 10,000-entry file took seconds). They are now tracked incrementally.
+
 ## [0.9.0] - 2026-09-26
 
 ### Breaking

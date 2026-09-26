@@ -190,7 +190,9 @@ impl RawEnwRecord {
 }
 
 pub(crate) fn looks_like_enw(content: &str) -> bool {
-    content.lines().any(is_enw_record_start)
+    content[crate::utils::utf8_bom_len(content)..]
+        .lines()
+        .any(is_enw_record_start)
 }
 
 pub(crate) fn parse_enw(content: &str) -> Result<Vec<Citation>, ParseError> {
@@ -202,6 +204,12 @@ pub(crate) fn parse_enw(content: &str) -> Result<Vec<Citation>, ParseError> {
 
     for raw_line in content.lines() {
         line_number += 1;
+        // A BOM before `%0` on the first line used to hide the whole first record.
+        let raw_line = if line_number == 1 {
+            &raw_line[crate::utils::utf8_bom_len(raw_line)..]
+        } else {
+            raw_line
+        };
         let line_byte_start = raw_line.as_ptr() as usize - text_ptr;
         let line_byte_end = line_byte_start + raw_line.len();
 

@@ -365,7 +365,9 @@ pub trait CitationParser {
 pub fn detect_and_parse(
     content: &str,
 ) -> std::result::Result<(Vec<Citation>, CitationFormat), CitationError> {
-    let trimmed = content.trim();
+    // U+FEFF is not whitespace, so strip a leading BOM explicitly; otherwise
+    // BOM-prefixed RIS, PubMed and EndNote XML files were not recognised.
+    let trimmed = content.trim_start_matches('\u{feff}').trim();
 
     if trimmed.is_empty() {
         return Ok((Vec::new(), CitationFormat::Unknown));
@@ -550,6 +552,38 @@ FAU - Smith, John"#;
         assert_eq!(format, CitationFormat::Bib);
         assert_eq!(citations[0].title, "Test Title");
         assert_eq!(citations[0].citation_type, vec!["article"]);
+    }
+
+    #[test]
+    fn test_detect_and_parse_bom_prefixed_inputs() {
+        let bom = '\u{feff}';
+        let cases = [
+            (
+                format!("{bom}TY  - JOUR\nTI  - T\nER  -\n"),
+                CitationFormat::Ris,
+            ),
+            (format!("{bom}PMID- 1\nTI  - T\n"), CitationFormat::PubMed),
+            (
+                format!(
+                    "{bom}<?xml version=\"1.0\"?><xml><records><record><titles><title>T</title></titles></record></records></xml>"
+                ),
+                CitationFormat::EndNoteXml,
+            ),
+            (
+                format!("{bom}%0 Journal Article\n%T T\n"),
+                CitationFormat::Enw,
+            ),
+            (
+                format!("{bom}@article{{a, title = {{T}}}}"),
+                CitationFormat::Bib,
+            ),
+        ];
+        for (input, expected) in cases {
+            let (citations, format) = detect_and_parse(&input).unwrap();
+            assert_eq!(format, expected, "{input:?}");
+            assert_eq!(citations.len(), 1, "{input:?}");
+            assert_eq!(citations[0].title, "T", "{input:?}");
+        }
     }
 
     #[test]

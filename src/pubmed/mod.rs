@@ -380,4 +380,42 @@ AID- 10.1016/j.example.2023.01.001 [doi]
         assert_eq!(citations.len(), 3);
         assert_eq!(citations[2].title, "");
     }
+
+    #[test]
+    fn test_bom_prefixed_first_record_is_kept() {
+        let citations = PubMedParser::new()
+            .parse("\u{feff}PMID- 1\nTI  - First\n\nPMID- 2\nTI  - Second\n")
+            .unwrap();
+        let pmids = citations.iter().map(|c| c.pmid.as_deref()).collect_vec();
+        assert_eq!(pmids, &[Some("1"), Some("2")]);
+        assert_eq!(citations[0].title, "First");
+    }
+
+    #[test]
+    fn test_bom_does_not_shift_error_span() {
+        let body = "PMID- 1\nDP  - not-a-date\n";
+        let plain = PubMedParser::new().parse(body).unwrap_err();
+        let with_bom = PubMedParser::new()
+            .parse(&format!("\u{feff}{body}"))
+            .unwrap_err();
+        assert_eq!(with_bom.line, plain.line);
+        let (plain, with_bom) = (plain.span.unwrap(), with_bom.span.unwrap());
+        assert_eq!(
+            (with_bom.start, with_bom.end),
+            (plain.start + 3, plain.end + 3)
+        );
+    }
+
+    #[test]
+    fn test_blank_or_tagless_chunks_are_not_citations() {
+        for input in [
+            "\nPMID- 1\nTI  - T\n",
+            "\n\n\nPMID- 1\nTI  - T\n",
+            "junk line\n\nPMID- 1\nTI  - T\n",
+        ] {
+            let citations = PubMedParser::new().parse(input).unwrap();
+            assert_eq!(citations.len(), 1, "{input:?}");
+            assert_eq!(citations[0].pmid.as_deref(), Some("1"));
+        }
+    }
 }

@@ -265,4 +265,45 @@ mod tests {
         assert!(diag.contains("refs.bib"));
         assert!(diag.contains("Bib"));
     }
+
+    #[test]
+    fn test_bom_prefixed_input_parses() {
+        let input = "\u{feff}@article{a, title = {Title}, author = {Smith, John}}";
+        assert!(parse::looks_like_bib(input));
+        let citations = BibParser::new().parse(input).unwrap();
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].title, "Title");
+    }
+
+    #[test]
+    fn test_deep_crossref_and_macro_chains_do_not_overflow() {
+        const DEPTH: usize = 5_000;
+        let mut input = String::new();
+        for i in 0..DEPTH {
+            input.push_str(&format!("@string{{m{i} = m{}}}\n", i + 1));
+        }
+        input.push_str(&format!("@string{{m{DEPTH} = {{Deep Journal}}}}\n"));
+        for i in 0..DEPTH {
+            input.push_str(&format!(
+                "@misc{{e{i}, crossref = {{e{}}}, title = {{T{i}}}, author = {{Doe, J}}}}\n",
+                i + 1
+            ));
+        }
+        input.push_str(&format!(
+            "@article{{e{DEPTH}, title = {{Root}}, author = {{Smith, John}}, journal = m0}}\n"
+        ));
+
+        let citations = BibParser::new().parse(&input).unwrap();
+        assert_eq!(citations.len(), DEPTH + 1);
+        // The macro chain is deeper than the limit, so it is left unresolved (the
+        // name at the cut-off is kept, as for an undefined macro).
+        let journal = citations[DEPTH].journal.as_deref().unwrap();
+        assert!(
+            journal.starts_with('m') && journal != "Deep Journal",
+            "{journal}"
+        );
+        // Entries inherit from their parents only up to the depth limit.
+        assert_eq!(citations[DEPTH - 1].journal.as_deref(), Some(journal));
+        assert_eq!(citations[0].journal, None);
+    }
 }

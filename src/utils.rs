@@ -631,6 +631,30 @@ fn parse_month_day_year_date(date_str: &str) -> Option<Date> {
     })
 }
 
+/// Byte length of a leading UTF-8 byte order mark (3), or 0.
+#[cfg(any(feature = "xml", feature = "pubmed", feature = "enw", feature = "bib"))]
+pub(crate) fn utf8_bom_len(content: &str) -> usize {
+    if content.starts_with(UTF8_BOM) {
+        UTF8_BOM.len_utf8()
+    } else {
+        0
+    }
+}
+
+/// The byte order mark U+FEFF.
+#[cfg(any(feature = "xml", feature = "pubmed", feature = "enw", feature = "bib"))]
+pub(crate) const UTF8_BOM: char = '\u{feff}';
+
+/// Byte offset into the original `content` of an XML reader's current position.
+///
+/// XML readers are built over `content` with any leading BOM removed (see
+/// [`utf8_bom_len`]), so reader positions are shifted back by the BOM length.
+/// Without this, every error position in a BOM-prefixed file was 3 bytes short.
+#[cfg(feature = "xml")]
+pub(crate) fn xml_reader_position<B>(reader: &quick_xml::Reader<B>, content: &str) -> usize {
+    utf8_bom_len(content) + reader.buffer_position() as usize
+}
+
 /// Converts a byte offset from the XML reader into an approximate line number.
 ///
 /// The offset is rounded down to a char boundary so a position inside a

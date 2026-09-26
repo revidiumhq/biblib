@@ -112,6 +112,7 @@ impl CitationParser for EndNoteXmlParser {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
+    use crate::ValueError;
 
     #[test]
     fn test_complete_endnote_xml() {
@@ -519,5 +520,78 @@ mod integration_tests {
         "#;
         let result = parser.parse(xml).unwrap();
         assert_eq!(result.len(), 0);
+    }
+
+    fn parse_one(xml: &str) -> Citation {
+        let mut citations = EndNoteXmlParser::new().parse(xml).unwrap();
+        assert_eq!(citations.len(), 1);
+        citations.remove(0)
+    }
+
+    #[test]
+    fn test_entities_and_cdata_are_kept_in_text() {
+        let citation = parse_one(
+            r#"<xml><records><record>
+            <titles><title>A &amp; B <![CDATA[<C>]]> &#x3B1; &lt;D&gt;</title></titles>
+            </record></records></xml>"#,
+        );
+        assert_eq!(citation.title, "A & B <C> α <D>");
+    }
+
+    #[test]
+    fn test_spaces_between_style_runs_are_kept() {
+        let citation = parse_one(
+            r#"<xml><records><record><titles><title>
+            <style face="normal" font="default" size="100%">Effect of </style><style face="italic" font="default" size="100%">vitamin D</style><style face="normal" font="default" size="100%"> in adults</style>
+            </title></titles></record></records></xml>"#,
+        );
+        assert_eq!(citation.title, "Effect of vitamin D in adults");
+    }
+
+    #[test]
+    fn test_unsupported_entity_is_an_error() {
+        let err = EndNoteXmlParser::new()
+            .parse("<xml><records><record><titles><title>A &nbsp; B</title></titles></record></records></xml>")
+            .unwrap_err();
+        assert!(matches!(err.error, ValueError::Syntax(ref msg) if msg.contains("&nbsp;")));
+    }
+
+    #[test]
+    fn test_year_attribute_is_unescaped() {
+        let citation = parse_one(
+            r#"<xml><records><record><titles><title>T</title></titles>
+            <dates><year year="&#50;021" month="0&#51;"></year></dates>
+            </record></records></xml>"#,
+        );
+        let date = citation.date.unwrap();
+        assert_eq!(date.year, 2021);
+        assert_eq!(date.month, Some(3));
+    }
+
+    #[test]
+    fn test_truncated_record_is_an_error() {
+        for xml in [
+            "<xml><records><record><titles><title>T</title></titles>",
+            "<xml><records><record><titles><title>T</title></titles><dates><year>2020</year>",
+        ] {
+            let err = EndNoteXmlParser::new().parse(xml).unwrap_err();
+            assert_eq!(err.line, Some(1));
+            assert!(
+                matches!(err.error, ValueError::Syntax(ref msg) if msg.starts_with("Unexpected EOF")),
+                "{xml}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_bom_does_not_shift_error_positions() {
+        let body = "<xml><records><record><titles><title>T</title></titles>";
+        let plain = EndNoteXmlParser::new().parse(body).unwrap_err();
+        let with_bom = EndNoteXmlParser::new()
+            .parse(&format!("\u{feff}{body}"))
+            .unwrap_err();
+        let (plain, with_bom) = (plain.span.unwrap(), with_bom.span.unwrap());
+        assert_eq!(with_bom.start, plain.start + 3);
+        assert_eq!(with_bom.end, plain.end + 3);
     }
 }
