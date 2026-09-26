@@ -5,11 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-09-26
 
 ### Breaking
 
 - **`serde` is now an optional feature**: `Serialize`/`Deserialize` derives on `Citation`, `Author`, `Date`, `DuplicateGroup` and `OwnedDuplicateGroup` are behind the new `serde` feature. It is enabled by default, so only builds using `default-features = false` that serialize these types need to add `features = ["serde"]`.
+
+### Fixed
+
+- **RIS record boundaries with indentation**: an indented `TY  -` line no longer becomes a continuation of the previous field. With a missing `ER`, two records were merged and the new record's `TY` text was appended to the prior field; indented `TY`/`ER` lines now start and close records. Indented prose such as "ER-positive" is still treated as a continuation.
+- **ICTRP XML with CRLF line endings**: CRLF inside field text was read as a paragraph break, so soft-wrapped lines in CRLF exports were never joined. CRLF is now normalized before bare CR.
+- **Panics on non-ASCII input**: parsers no longer panic when a string slice would fall inside a multi-byte character. Affected the ENW parser (multi-byte tag character, e.g. a BOM after `%`), page-range normalization shared by the RIS, CSV, ENW, BibTeX and XML parsers (e.g. `12é-3`), and error line numbers in the EndNote XML and ICTRP XML parsers for BOM-prefixed files.
+
+### Changed
+
+- **Minimum supported Rust version declared**: `rust-version = "1.88"` is now set in `Cargo.toml` and checked in CI. 1.88 was already required in practice.
+- **Leaner published crate**: CI configuration, coverage artifacts, maintainer scripts and test fixtures are no longer included in the package.
+- **docs.rs builds with all features**, so the `diagnostics` API is documented.
+- **Deduplication internals reorganized** into submodules. No behavior or public API change.
+
+### Added
+
+- **Continuous integration**: rustfmt, clippy, tests on Linux/Windows/macOS, per-feature builds, docs, packaging and MSRV checks run on every pull request. Every single-feature build is now warning-free.
+- **Property-based robustness tests** for every parser and for deduplication.
 
 ## [0.8.1] - 2026-09-05
 

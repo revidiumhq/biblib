@@ -1,6 +1,6 @@
 [package]
 name = "biblib"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Parse, manage, and deduplicate academic citations"
