@@ -321,7 +321,9 @@ fn normalize_embedded_markup(value: &str) -> String {
         .replace("<br/>", "\n")
         .replace("<br>", "\n");
 
-    normalized = normalized.replace('\r', "\n");
+    // Normalize CRLF first (XML end-of-line handling) so it is not read as a
+    // paragraph break, then treat any remaining bare CR as a line break.
+    normalized = normalized.replace("\r\n", "\n").replace('\r', "\n");
     normalized = normalized
         .replace("&lt;=", "<=")
         .replace("&gt;=", ">=")
@@ -844,6 +846,27 @@ mod tests {
             }
             buf.clear();
         }
+    }
+
+    #[test]
+    fn test_crlf_soft_wraps_match_lf() {
+        let xml = |nl: &str| {
+            format!(
+                "<?xml version=\"1.0\"?>{nl}<Trials_downloaded_from_ICTRP>{nl}<Trial>{nl}\
+                 <TrialID>NCT00000001</TrialID>{nl}<Public_title>Title</Public_title>{nl}\
+                 <Inclusion_Criteria>part of{nl}routine care{nl}{nl}2. Age 18-75 years.\
+                 </Inclusion_Criteria>{nl}</Trial>{nl}</Trials_downloaded_from_ICTRP>{nl}"
+            )
+        };
+        let parser = IctrpXmlParser::new();
+        let lf = parser.parse(&xml("\n")).unwrap();
+        let crlf = parser.parse(&xml("\r\n")).unwrap();
+        let bare_cr = parser.parse(&xml("\r")).unwrap();
+
+        let inclusion = &lf[0].extra_fields["Inclusion_Criteria"][0];
+        assert_eq!(inclusion, "part of routine care\n\n2. Age 18-75 years.");
+        assert_eq!(&crlf[0].extra_fields["Inclusion_Criteria"][0], inclusion);
+        assert_eq!(&bare_cr[0].extra_fields["Inclusion_Criteria"][0], inclusion);
     }
 
     #[test]

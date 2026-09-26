@@ -153,8 +153,9 @@
 //! Deduplication defensively normalizes user-constructed citations before
 //! matching:
 //!
-//! - DOI values go through [`format_doi`]
-//! - Page ranges go through [`format_page_numbers`], then compare on normalized
+//! - DOI values are normalized (URL prefixes, percent-encoding and trailing
+//!   `[doi]` noise are stripped)
+//! - Page ranges go through page-range normalization, then compare on normalized
 //!   start page
 //! - Journal names and abbreviations normalize empty results to `None`
 //! - Author keys use lowercase alphanumerics after Unicode NFKD folding
