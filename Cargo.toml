@@ -11,6 +11,10 @@ documentation = "https://docs.rs/biblib"
 readme = "README.md"
 keywords = ["citations", "deduplication", "nbib", "doi", "bibliography"]
 categories = ["science", "text-processing"]
+exclude = ["/.github", "/artifacts", "/scripts", "/tests/fixtures"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = ["csv", "pubmed", "xml", "ris", "enw", "bib", "dedupe"]
