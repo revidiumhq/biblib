@@ -1,7 +1,7 @@
 # Deduplication Guide
 
-This guide describes the deduplication API in `biblib 0.8`, how the matching
-engine works, and what changed from the 0.7 series.
+This guide describes the deduplication API in `biblib 0.9` (unchanged since
+0.8), how the matching engine works, and what changed from the 0.7 series.
 
 ## Overview
 

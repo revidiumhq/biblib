@@ -79,7 +79,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! biblib = { version = "0.8", default-features = false, features = ["ris", "csv"] }
+//! biblib = { version = "0.9", default-features = false, features = ["ris", "csv"] }
 //! ```
 //!
 //! Available public features:
@@ -92,6 +92,7 @@
 //! - `bib`
 //! - `dedupe`
 //! - `diagnostics`
+//! - `serde`
 //!
 //! Since `v0.5`, `biblib` no longer uses the `regex` crate or exposes regex
 //! backend feature flags. It uses `regex-lite` internally, and regex backend

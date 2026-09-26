@@ -29,14 +29,14 @@ All parser outputs converge on the same `Citation` struct, including normalized 
 
 ```toml
 [dependencies]
-biblib = "0.8"
+biblib = "0.9"
 ```
 
 For a smaller build:
 
 ```toml
 [dependencies]
-biblib = { version = "0.8", default-features = false, features = ["ris"] }
+biblib = { version = "0.9", default-features = false, features = ["ris"] }
 ```
 
 ## Quick Start
@@ -311,7 +311,7 @@ For human-friendly diagnostics, enable `diagnostics`:
 
 ```toml
 [dependencies]
-biblib = { version = "0.8", features = ["diagnostics"] }
+biblib = { version = "0.9", features = ["diagnostics"] }
 ```
 
 Then use `parse_with_diagnostics()`:
