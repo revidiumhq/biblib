@@ -142,7 +142,6 @@
 //! assert!(matches!(err.error, ValueError::BadValue { .. }));
 //! ```
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[cfg(feature = "csv")]
@@ -237,7 +236,8 @@ impl std::fmt::Display for CitationFormat {
 }
 
 /// Represents a publication date with required year and optional month/day components.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Date {
     /// Publication year (required)
     pub year: i32,
@@ -248,7 +248,8 @@ pub struct Date {
 }
 
 /// Represents an author of a citation.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Author {
     /// The primary name of the person. This can be the family name or full name for mononyms.
     pub name: String,
@@ -264,7 +265,8 @@ pub struct Author {
 }
 
 /// Represents a single citation with its metadata.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Citation {
     /// Type of the citation
     pub citation_type: Vec<String>,
@@ -580,5 +582,22 @@ FAU - Smith, John"#;
             citations[0].accession_number.as_deref(),
             Some("NCT00000001")
         );
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod serde_tests {
+    fn assert_serde<T: serde::Serialize + serde::de::DeserializeOwned>() {}
+
+    #[test]
+    fn public_types_implement_serde() {
+        assert_serde::<crate::Citation>();
+        assert_serde::<crate::Author>();
+        assert_serde::<crate::Date>();
+        #[cfg(feature = "dedupe")]
+        {
+            assert_serde::<crate::DuplicateGroup>();
+            assert_serde::<crate::dedupe::OwnedDuplicateGroup>();
+        }
     }
 }

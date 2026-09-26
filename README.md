@@ -276,8 +276,9 @@ This makes it easy to normalize aggressively where the library has clear semanti
 | `csv` | Generic CSV parser and deprecated ICTRP CSV parser |
 | `dedupe` | Deduplication engine |
 | `diagnostics` | Pretty parse diagnostics via `ariadne` |
+| `serde` | `Serialize`/`Deserialize` for `Citation`, `Author`, `Date` and duplicate groups |
 
-Default features: `csv`, `pubmed`, `xml`, `ris`, `enw`, `bib`, `dedupe`
+Default features: `csv`, `pubmed`, `xml`, `ris`, `enw`, `bib`, `dedupe`, `serde`
 
 Since `v0.5`, `biblib` no longer uses the `regex` crate or exposes regex-backend feature flags. It uses `regex-lite` internally, and regex backend selection is no longer part of the public API surface.
 

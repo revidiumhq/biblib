@@ -177,7 +177,6 @@
 use crate::Citation;
 use crate::regex::Regex;
 use crate::utils::{format_doi, format_page_numbers};
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::LazyLock;
 use strsim::jaro;
@@ -225,7 +224,8 @@ const BOILERPLATE_TITLE_PREFIXES: [&str; 5] = [
 ];
 
 /// Represents a group of duplicate citations using indices into the input slice.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DuplicateGroup {
     /// Index into the input slice of the citation selected as unique.
     pub unique: usize,
@@ -234,7 +234,8 @@ pub struct DuplicateGroup {
 }
 
 /// Represents a group of duplicate citations as owned `Citation` values.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OwnedDuplicateGroup {
     /// The unique citation selected from the duplicate group.
     pub unique: Citation,
