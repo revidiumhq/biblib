@@ -57,8 +57,12 @@ struct ResolvedEntry {
     span: SourceSpan,
 }
 
+/// Maximum nesting of `crossref` / `xdata` parents and of `@string` macro
+/// references that is followed while resolving an entry.
+const MAX_RESOLVE_DEPTH: usize = 64;
+
 pub(crate) fn looks_like_bib(content: &str) -> bool {
-    let trimmed = content.trim_start();
+    let trimmed = content[crate::utils::utf8_bom_len(content)..].trim_start();
     if !trimmed.starts_with('@') {
         return false;
     }
@@ -92,11 +96,38 @@ pub(crate) fn parse_bib(content: &str) -> Result<Vec<Citation>, ParseError> {
 struct Parser<'a> {
     source: &'a str,
     pos: usize,
+    /// Incremental line counter for entry start lines: `(byte offset, line at it)`.
+    line_mark: (usize, usize),
 }
 
 impl<'a> Parser<'a> {
     fn new(source: &'a str) -> Self {
-        Self { source, pos: 0 }
+        // Start after a leading BOM (U+FEFF is not whitespace, so it used to be a
+        // syntax error). Positions stay relative to `source`.
+        let pos = crate::utils::utf8_bom_len(source);
+        Self {
+            source,
+            pos,
+            line_mark: (0, 1),
+        }
+    }
+
+    /// 1-based line of byte offset `pos`. Entries are visited in order, so this
+    /// resumes from the previous call instead of rescanning from the start
+    /// (which made parsing quadratic in the number of entries).
+    fn line_at(&mut self, pos: usize) -> usize {
+        let (mark_pos, mark_line) = if pos >= self.line_mark.0 {
+            self.line_mark
+        } else {
+            (0, 1)
+        };
+        let pos = pos.min(self.source.len());
+        let newlines = self.source.as_bytes()[mark_pos..pos]
+            .iter()
+            .filter(|&&b| b == b'\n')
+            .count();
+        self.line_mark = (pos, mark_line + newlines);
+        self.line_mark.1
     }
 
     fn parse_document(&mut self) -> Result<ParsedDocument, ParseError> {
@@ -271,7 +302,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let start_line = line_and_column_at(self.source, start_pos).0;
+        let start_line = self.line_at(start_pos);
         Ok(RawBibEntry {
             entry_type,
             key,
@@ -583,11 +614,19 @@ impl Resolver {
         }
 
         let raw_entry = self.entries[index].clone();
+        // Past the depth limit, parents are not followed (like a cycle), so a
+        // hostile file cannot overflow the stack.
+        let follow_parents = stack.len() < MAX_RESOLVE_DEPTH;
         stack.push(index);
 
         let mut fields = self.resolve_local_fields(&raw_entry.fields);
 
-        for key in collect_reference_keys(fields.get("xdata")) {
+        let xdata_keys = if follow_parents {
+            collect_reference_keys(fields.get("xdata"))
+        } else {
+            Vec::new()
+        };
+        for key in xdata_keys {
             if let Some(parent_index) = self.entry_lookup.get(&key.to_ascii_lowercase()).copied()
                 && !stack.contains(&parent_index)
             {
@@ -600,7 +639,7 @@ impl Resolver {
             .get("crossref")
             .and_then(|values| values.first())
             .map(|field| field.value.trim().to_string())
-            .filter(|value| !value.is_empty())
+            .filter(|value| !value.is_empty() && follow_parents)
             && let Some(parent_index) = self
                 .entry_lookup
                 .get(&crossref.to_ascii_lowercase())
@@ -668,7 +707,7 @@ impl Resolver {
             return cached.clone();
         }
 
-        if macro_stack.contains(&key) {
+        if macro_stack.contains(&key) || macro_stack.len() >= MAX_RESOLVE_DEPTH {
             return ResolvedText {
                 value: name.to_string(),
                 fully_resolved: false,

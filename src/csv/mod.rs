@@ -479,4 +479,39 @@ Another Paper,Doe J,2024";
         assert_eq!(raw[1].line_number, 3);
         assert_eq!(raw[2].line_number, 4);
     }
+
+    #[test]
+    fn test_line_numbers_follow_source_lines() {
+        use crate::csv::config::CsvConfig;
+        let config = CsvConfig::new();
+        for (input, expected) in [
+            // CRLF endings used to be reported one line low.
+            (
+                "Title,Author\r\nA,Smith\r\nB,Jones\r\n",
+                vec![(2, 14), (3, 23)],
+            ),
+            // Blank lines used to be skipped without counting them.
+            (
+                "Title,Author\n\nA,Smith\n\n\nB,Jones\n",
+                vec![(3, 14), (6, 24)],
+            ),
+            // A quoted field spanning lines moves the next record down.
+            (
+                "Title,Author\n\"A\nsubtitle\",Smith\nB,Jones\n",
+                vec![(2, 13), (4, 32)],
+            ),
+        ] {
+            let raw = parse::csv_parse(input, &config).unwrap();
+            let positions: Vec<_> = raw.iter().map(|r| (r.line_number, r.byte_offset)).collect();
+            assert_eq!(positions, expected, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn test_csv_error_line_in_crlf_file() {
+        let err = CsvParser::new()
+            .parse("Title,Author\r\nA,B\r\nTest Paper")
+            .unwrap_err();
+        assert_eq!(err.line, Some(3));
+    }
 }

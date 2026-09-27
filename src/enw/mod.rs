@@ -320,4 +320,15 @@ Second line continues here.
         let span = err.span.expect("expected span");
         assert!(span.end > span.start);
     }
+
+    #[test]
+    fn test_bom_prefixed_first_record_is_kept() {
+        let input = "\u{feff}%0 Journal Article\n%T First\n%A Smith, John\n\n%0 Book\n%T Second\n";
+        assert!(parse::looks_like_enw(input));
+        let citations = EnwParser::new().parse(input).unwrap();
+        assert_eq!(citations.len(), 2);
+        assert_eq!(citations[0].title, "First");
+        assert_eq!(citations[0].citation_type, vec!["Journal Article"]);
+        assert!(parse::looks_like_enw("\u{feff}%0 Book\n%T Only\n"));
+    }
 }

@@ -8,7 +8,7 @@ use crate::error::{ParseError, SourceSpan, ValueError, fields};
 use crate::ictrp::{
     dedupe_urls, is_ictrp_url_field, parse_ictrp_compact_date, parse_ictrp_standard_date,
 };
-use crate::utils::buffer_position_to_line_number;
+use crate::utils::{buffer_position_to_line_number, utf8_bom_len, xml_reader_position};
 use crate::{Citation, CitationFormat, CitationParser};
 use quick_xml::Reader;
 use quick_xml::escape::unescape;
@@ -55,14 +55,14 @@ pub(crate) fn looks_like_ictrp_xml(content: &str) -> bool {
 }
 
 fn parse_ictrp_xml(content: &str) -> Result<Vec<Citation>, ParseError> {
-    let mut reader = Reader::from_str(content);
+    let mut reader = Reader::from_str(&content[utf8_bom_len(content)..]);
     reader.config_mut().trim_text(false);
 
     let mut citations = Vec::new();
     let mut buf = Vec::new();
 
     loop {
-        let pos = reader.buffer_position() as usize;
+        let pos = xml_reader_position(&reader, content);
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) if e.name() == QName(b"Trial") => {
                 citations.push(parse_trial(&mut reader, &mut buf, content, pos)?);
@@ -87,7 +87,7 @@ fn parse_trial<B: BufRead>(
     let mut urls = Vec::new();
 
     loop {
-        let event_pos = reader.buffer_position() as usize;
+        let event_pos = xml_reader_position(reader, content);
         match reader.read_event_into(buf) {
             Ok(Event::Start(ref e)) => {
                 let tag_name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
@@ -101,14 +101,14 @@ fn parse_trial<B: BufRead>(
                 store_field(&mut fields, &mut urls, &tag_name, String::new());
             }
             Ok(Event::End(ref e)) if e.name() == QName(b"Trial") => {
-                let end_pos = reader.buffer_position() as usize;
+                let end_pos = xml_reader_position(reader, content);
                 return build_trial_citation(fields, urls, content, start_pos, end_pos);
             }
             Ok(Event::Eof) => {
                 return Err(xml_error(
                     content,
                     start_pos,
-                    reader.buffer_position() as usize,
+                    xml_reader_position(reader, content),
                     "Unexpected EOF while parsing <Trial>".to_string(),
                 ));
             }
@@ -116,7 +116,7 @@ fn parse_trial<B: BufRead>(
                 return Err(xml_error(
                     content,
                     event_pos,
-                    reader.buffer_position() as usize,
+                    xml_reader_position(reader, content),
                     e.to_string(),
                 ));
             }
@@ -427,14 +427,14 @@ fn extract_text_with_position<B: BufRead>(
     let closing_tag_str = String::from_utf8_lossy(closing_tag);
 
     loop {
-        let current_pos = reader.buffer_position() as usize;
+        let current_pos = xml_reader_position(reader, content);
         match reader.read_event_into(buf) {
             Ok(Event::Text(e)) => {
                 let decoded = e.decode().map_err(|e| {
                     xml_error(
                         content,
                         current_pos,
-                        reader.buffer_position() as usize,
+                        xml_reader_position(reader, content),
                         e.to_string(),
                     )
                 })?;
@@ -442,7 +442,7 @@ fn extract_text_with_position<B: BufRead>(
                     xml_error(
                         content,
                         current_pos,
-                        reader.buffer_position() as usize,
+                        xml_reader_position(reader, content),
                         e.to_string(),
                     )
                 })?;
@@ -453,7 +453,7 @@ fn extract_text_with_position<B: BufRead>(
                     xml_error(
                         content,
                         current_pos,
-                        reader.buffer_position() as usize,
+                        xml_reader_position(reader, content),
                         e.to_string(),
                     )
                 })?);
@@ -463,7 +463,7 @@ fn extract_text_with_position<B: BufRead>(
                     xml_error(
                         content,
                         current_pos,
-                        reader.buffer_position() as usize,
+                        xml_reader_position(reader, content),
                         e.to_string(),
                     )
                 })? {
@@ -473,7 +473,7 @@ fn extract_text_with_position<B: BufRead>(
                         xml_error(
                             content,
                             current_pos,
-                            reader.buffer_position() as usize,
+                            xml_reader_position(reader, content),
                             e.to_string(),
                         )
                     })?;
@@ -488,7 +488,7 @@ fn extract_text_with_position<B: BufRead>(
                             return Err(xml_error(
                                 content,
                                 current_pos,
-                                reader.buffer_position() as usize,
+                                xml_reader_position(reader, content),
                                 format!("Unsupported entity reference: &{};", other),
                             ));
                         }
@@ -507,14 +507,14 @@ fn extract_text_with_position<B: BufRead>(
                 )
                 .with_span(SourceSpan::new(
                     start_pos,
-                    reader.buffer_position() as usize,
+                    xml_reader_position(reader, content),
                 )));
             }
             Err(e) => {
                 return Err(xml_error(
                     content,
                     current_pos,
-                    reader.buffer_position() as usize,
+                    xml_reader_position(reader, content),
                     e.to_string(),
                 ));
             }
@@ -817,7 +817,7 @@ mod tests {
         let mut buf = Vec::new();
 
         loop {
-            let pos = reader.buffer_position() as usize;
+            let pos = xml_reader_position(&reader, input);
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) if e.name() == QName(b"Inclusion_Criteria") => {
                     let text = extract_text_with_position(
@@ -933,5 +933,17 @@ mod tests {
             bullet_inclusion.contains("follow-up visits"),
             "{bullet_inclusion:?}"
         );
+    }
+
+    #[test]
+    fn test_bom_does_not_shift_error_positions() {
+        let body = "<?xml version=\"1.0\"?><Trials_downloaded_from_ICTRP><Trial><TrialID>X";
+        let plain = IctrpXmlParser::new().parse(body).unwrap_err();
+        let with_bom = IctrpXmlParser::new()
+            .parse(&format!("\u{feff}{body}"))
+            .unwrap_err();
+        let (plain, with_bom) = (plain.span.unwrap(), with_bom.span.unwrap());
+        assert_eq!(with_bom.start, plain.start + 3);
+        assert_eq!(with_bom.end, plain.end + 3);
     }
 }

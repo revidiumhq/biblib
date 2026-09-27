@@ -189,8 +189,13 @@ impl CsvConfig {
             return Err("No header mappings defined".to_string());
         }
 
+        // Visit fields in a fixed order: with several problems, iterating the
+        // HashMap directly made the reported one vary from run to run.
+        let mut mappings: Vec<(&String, &Vec<String>)> = self.header_map.iter().collect();
+        mappings.sort_by(|a, b| a.0.cmp(b.0));
+
         // Check for empty field names
-        for (field, aliases) in &self.header_map {
+        for &(field, aliases) in &mappings {
             if field.is_empty() {
                 return Err("Empty field name found in mappings".to_string());
             }
@@ -211,7 +216,7 @@ impl CsvConfig {
 
         // Check for duplicate aliases across different fields
         let mut all_aliases = HashMap::new();
-        for (field, aliases) in &self.header_map {
+        for &(field, aliases) in &mappings {
             for alias in aliases {
                 let alias_lower = alias.to_lowercase();
                 if let Some(existing_field) = all_aliases.get(&alias_lower)
@@ -333,5 +338,19 @@ mod tests {
         assert!(!config.trim);
         assert!(config.flexible);
         assert!(config.store_original_record);
+    }
+
+    #[test]
+    fn test_validate_reports_the_same_problem_every_time() {
+        let messages: std::collections::HashSet<String> = (0..50)
+            .map(|_| {
+                let mut config = CsvConfig::new();
+                for field in ["zeta", "alpha", "mu", "beta"] {
+                    config.set_header_mapping(field, Vec::new());
+                }
+                config.validate().unwrap_err()
+            })
+            .collect();
+        assert_eq!(messages.len(), 1, "{messages:?}");
     }
 }

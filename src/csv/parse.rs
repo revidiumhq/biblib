@@ -16,6 +16,48 @@ pub fn csv_parse<S: AsRef<str>>(
     csv_parse_with_format(csv_text, config, CitationFormat::Csv)
 }
 
+/// Maps csv record positions to real source lines and byte offsets.
+///
+/// A csv `Position` points at the first line terminator skipped before the
+/// record (the `LF` of a `CRLF`, or a run of blank lines), and its line counter
+/// does not count those terminators. So records after CRLF line endings were
+/// reported one line low, and records after blank lines too early. This skips
+/// the terminators and counts `LF` bytes itself, incrementally, since records
+/// arrive in order.
+struct SourceLines<'a> {
+    bytes: &'a [u8],
+    /// `(byte offset, 1-based line at that offset)`.
+    mark: (usize, usize),
+}
+
+impl<'a> SourceLines<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            bytes: text.as_bytes(),
+            mark: (0, 1),
+        }
+    }
+
+    /// `(line, byte offset)` of the first byte of the record reported at `byte`.
+    fn record_start(&mut self, byte: usize) -> (usize, usize) {
+        let mut start = byte.min(self.bytes.len());
+        while start < self.bytes.len() && matches!(self.bytes[start], b'\r' | b'\n') {
+            start += 1;
+        }
+        let (mark_pos, mark_line) = if start >= self.mark.0 {
+            self.mark
+        } else {
+            (0, 1)
+        };
+        let newlines = self.bytes[mark_pos..start]
+            .iter()
+            .filter(|&&b| b == b'\n')
+            .count();
+        self.mark = (start, mark_line + newlines);
+        (self.mark.1, start)
+    }
+}
+
 /// Parse CSV content while attributing errors to a specific format.
 pub(crate) fn csv_parse_with_format<S: AsRef<str>>(
     csv_text: S,
@@ -81,14 +123,16 @@ pub(crate) fn csv_parse_with_format<S: AsRef<str>>(
     }
 
     let mut raw_citations = Vec::new();
-    let mut line_number = if config.has_header { 2 } else { 1 }; // Start counting from data lines
+    // Fallback line for errors without a position; records use `lines` below.
+    let mut line_number = if config.has_header { 2 } else { 1 };
+    let mut lines = SourceLines::new(text);
 
     for result in reader.records() {
         let record = result.map_err(|e| {
             // Extract position information from csv::Error if available
             if let Some(position) = e.position() {
                 ParseError::at_line(
-                    position.line() as usize,
+                    lines.record_start(position.byte() as usize).0,
                     format.clone(),
                     ValueError::Syntax(format!("CSV parsing error: {}", e)),
                 )
@@ -106,16 +150,19 @@ pub(crate) fn csv_parse_with_format<S: AsRef<str>>(
             continue;
         }
 
-        let byte_offset = record.position().map(|p| p.byte() as usize).unwrap_or(0);
+        let (record_line, byte_offset) = match record.position() {
+            Some(position) => lines.record_start(position.byte() as usize),
+            None => (line_number, 0),
+        };
 
         let raw_citation =
-            RawCsvData::from_record(&headers, &record, config, line_number, byte_offset, &format)?;
+            RawCsvData::from_record(&headers, &record, config, record_line, byte_offset, &format)?;
 
         if raw_citation.has_content() {
             raw_citations.push(raw_citation);
         } else if !config.flexible {
             return Err(ParseError::at_line(
-                line_number,
+                record_line,
                 format.clone(),
                 ValueError::Syntax("Record contains no meaningful content".to_string()),
             ));

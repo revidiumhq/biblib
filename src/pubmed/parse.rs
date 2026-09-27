@@ -4,7 +4,7 @@ use crate::pubmed::split::BlankLineSplit;
 use crate::pubmed::structure::RawPubmedData;
 use crate::pubmed::tags::PubmedTag;
 use crate::pubmed::whole_lines::WholeLinesIter;
-use crate::utils::newline_delimiter_of;
+use crate::utils::{newline_delimiter_of, utf8_bom_len};
 use either::{Either, Left, Right};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -13,14 +13,19 @@ use std::collections::HashMap;
 /// in a [HashMap] (with the order of duplicate values preserved in the [Vec] values)
 /// alongside any unparsable lines.
 pub fn pubmed_parse<S: AsRef<str>>(nbib_text: S) -> Vec<RawPubmedData> {
-    let text = nbib_text.as_ref();
-    let text_ptr = text.as_ptr() as usize;
+    let source = nbib_text.as_ref();
+    // Offsets are measured from `source`, so stripping a BOM does not shift spans.
+    let text_ptr = source.as_ptr() as usize;
+    let text = &source[utf8_bom_len(source)..];
     let line_break = newline_delimiter_of(text);
     BlankLineSplit::new(text, line_break)
         .map(|(line_number, chunk)| {
             let chunk_start = chunk.as_ptr() as usize - text_ptr;
             pubmed_parse_one(chunk, line_break, line_number, chunk_start)
         })
+        // Chunks with no recognised tag (leading blank lines, stray text) are not
+        // records; they used to become empty citations.
+        .filter(|raw| !raw.data.is_empty() || !raw.authors.is_empty())
         .collect() // TODO do not collect, return an Iterator instead
 }
 

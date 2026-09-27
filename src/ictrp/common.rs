@@ -31,9 +31,11 @@ pub(crate) fn parse_ictrp_compact_date(value: &str) -> Option<Date> {
         return None;
     }
 
-    let year = trimmed[0..4].parse().ok()?;
-    let month = trimmed[4..6].parse().ok()?;
-    let day = trimmed[6..8].parse().ok()?;
+    // `get` rather than indexing: an 8-byte value can contain multi-byte
+    // characters, and slicing inside one would panic.
+    let year = trimmed.get(0..4)?.parse().ok()?;
+    let month = trimmed.get(4..6)?.parse().ok()?;
+    let day = trimmed.get(6..8)?.parse().ok()?;
 
     Some(Date {
         year,
@@ -102,6 +104,14 @@ mod tests {
                 day: Some(1),
             })
         );
+    }
+
+    #[test]
+    fn test_parse_ictrp_compact_date_multibyte_does_not_panic() {
+        // 8 bytes, with byte 4 inside the 2-byte 'é'.
+        assert_eq!(parse_ictrp_compact_date("202é050"), None);
+        // 8 bytes, boundaries intact, but not digits.
+        assert_eq!(parse_ictrp_compact_date("202605é"), None);
     }
 
     #[test]
