@@ -410,8 +410,6 @@ mod csv {
             let body: Vec<String> = rows.into_iter().map(|r| r.join(",")).collect();
             let input = format!("{header}\n{}", body.join("\n"));
             let _ = CsvParser::new().parse(&input);
-            #[allow(deprecated)]
-            let _ = biblib::IctrpCsvParser::new().parse(&input);
         }
     }
 }

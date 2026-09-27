@@ -282,7 +282,6 @@ mod tests {
         assert_eq!(format!("{}", CitationFormat::Enw), "EndNote Tagged");
         assert_eq!(format!("{}", CitationFormat::Bib), "BibTeX / BibLaTeX");
         assert_eq!(format!("{}", CitationFormat::Csv), "CSV");
-        assert_eq!(format!("{}", CitationFormat::IctrpCsv), "ICTRP CSV");
     }
 
     #[cfg(feature = "csv")]

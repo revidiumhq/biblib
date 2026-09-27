@@ -353,9 +353,9 @@ Results in 3 separate authors.
 
 ## ICTRP XML Format
 
-`IctrpXmlParser` is the preferred parser for WHO ICTRP exports. It exists to
-replace the older CSV-based ingestion path, which can lose field alignment when
-real-world ICTRP CSV rows overflow their header width. The XML parser reads each
+`IctrpXmlParser` is the parser for WHO ICTRP exports. It replaced the older
+CSV-based ingestion path (removed in 0.10), which could lose field alignment when
+real-world ICTRP CSV rows overflowed their header width. The XML parser reads each
 `<Trial>` record into one `Citation` and preserves the existing ICTRP
 normalization rules wherever the XML and CSV exports overlap.
 
@@ -450,59 +450,6 @@ errors include record-level position context derived from the XML reader buffer.
 generic XML syntax alone. Detection looks for the
 `Trials_downloaded_from_ICTRP` root and `Trial` records, and this check runs
 before generic EndNote XML detection.
-
----
-
-## ICTRP CSV Format
-
-`IctrpCsvParser` remains available for backward compatibility, but it is now a
-deprecated compatibility path. New ICTRP ingestion should prefer
-`IctrpXmlParser`.
-
-The CSV parser still exists because older integrations may already depend on it,
-and `detect_and_parse()` continues to recognize ICTRP CSV input. The field
-mapping is intentionally aligned with the XML parser so both formats produce the
-same core `Citation` data where the source fields overlap.
-
-### CSV Mapping Baseline
-
-| ICTRP CSV Column | Citation field | Behavior |
-|------------------|----------------|----------|
-| `TrialID` | `accession_number` | Required |
-| `Scientific title` | `title` | Primary title |
-| `Public title` | `title` fallback | Used only when `Scientific title` is missing |
-| `Date registration3` | `date` | Preferred source |
-| `Date registration` | `date` fallback | Used when `Date registration3` is absent or unparseable |
-| `Primary sponsor` | `publisher` | Primary sponsor name |
-| `Study type` | `citation_type` | Appended after `Clinical Trial` when distinct |
-| `web address` | `urls` | Deduplicated with other result URLs |
-| `results url link` | `urls` | Deduplicated with other result URLs |
-| `results url protocol` | `urls` | Deduplicated with other result URLs |
-
-### Compatibility Notes
-
-- `authors` stays empty here for the same reason as XML.
-- Remaining non-empty ICTRP CSV columns are preserved in `extra_fields`.
-- CSV auto-detection remains enabled for backward compatibility.
-- If both `Scientific title` and `Public title` are absent, parsing still
-  succeeds and `citation.title` is left empty.
-- XML should be preferred for new pipelines because malformed ICTRP CSV exports
-  can still contain row-shape issues that do not exist in the XML release.
-
-When enabled, the parser automatically detects:
-- **Delimiter**: comma, semicolon, or tab
-- **Header row**: Checks first row for known field names
-
-### Extra Fields
-
-Unrecognized columns are preserved in `extra_fields` HashMap:
-
-```csv
-Title,Author,Custom Field
-Paper,Smith,Custom Value
-```
-
-`citation.extra_fields["Custom Field"] = ["Custom Value"]`
 
 ---
 

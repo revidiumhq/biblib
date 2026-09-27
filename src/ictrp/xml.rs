@@ -2,7 +2,7 @@
 //!
 //! WHO ICTRP XML exports contain one `<Trial>` element per registry record.
 //! This parser keeps the normalized ICTRP citation mapping aligned with the
-//! existing ICTRP CSV parser while preserving raw XML fields in `extra_fields`.
+//! former ICTRP CSV parser while preserving raw XML fields in `extra_fields`.
 
 use crate::error::{ParseError, SourceSpan, ValueError, fields};
 use crate::ictrp::{

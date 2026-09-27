@@ -11,8 +11,7 @@
 //! # What You Get
 //!
 //! - Dedicated parsers for RIS, PubMed / MEDLINE, EndNote XML, ICTRP XML,
-//!   EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), generic CSV, and
-//!   ICTRP CSV exports
+//!   EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), and generic CSV
 //! - A shared [`Citation`] output type with normalized identifiers such as DOI,
 //!   PMID, PMCID, and `accession_number`
 //! - Preservation of source-specific leftovers through `extra_fields`
@@ -58,10 +57,8 @@
 //! # Auto-Detection
 //!
 //! [`detect_and_parse`] currently auto-detects RIS, PubMed, ICTRP XML,
-//! EndNote XML, EndNote Tagged, BibTeX / BibLaTeX, and ICTRP CSV. ICTRP XML
-//! is the preferred ICTRP ingestion path; ICTRP CSV remains for backward
-//! compatibility. Generic CSV remains explicit because header mapping is
-//! application-specific.
+//! EndNote XML, EndNote Tagged, and BibTeX / BibLaTeX. Generic CSV remains
+//! explicit because header mapping is application-specific.
 //!
 //! ```rust
 //! use biblib::detect_and_parse;
@@ -79,7 +76,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! biblib = { version = "0.9", default-features = false, features = ["ris", "csv"] }
+//! biblib = { version = "0.10", default-features = false, features = ["ris", "csv"] }
 //! ```
 //!
 //! Available public features:
@@ -170,8 +167,7 @@ pub mod ris;
 #[cfg(feature = "bib")]
 pub use bib::BibParser;
 #[cfg(feature = "csv")]
-#[allow(deprecated)]
-pub use csv::{CsvParser, IctrpCsvParser};
+pub use csv::CsvParser;
 #[cfg(feature = "dedupe")]
 pub use dedupe::{DuplicateGroup, OwnedDuplicateGroup};
 #[cfg(feature = "diagnostics")]
@@ -188,7 +184,7 @@ pub use pubmed::PubMedParser;
 #[cfg(feature = "ris")]
 pub use ris::RisParser;
 
-#[cfg(any(feature = "csv", feature = "xml"))]
+#[cfg(feature = "xml")]
 mod ictrp;
 mod regex;
 mod utils;
@@ -209,7 +205,6 @@ pub enum CitationFormat {
     Enw,
     Bib,
     Csv,
-    IctrpCsv,
     Unknown,
 }
 
@@ -224,7 +219,6 @@ impl CitationFormat {
             CitationFormat::Enw => "EndNote Tagged",
             CitationFormat::Bib => "BibTeX / BibLaTeX",
             CitationFormat::Csv => "CSV",
-            CitationFormat::IctrpCsv => "ICTRP CSV",
             CitationFormat::Unknown => "Unknown",
         }
     }
@@ -442,16 +436,6 @@ pub fn detect_and_parse(
             .map_err(CitationError::Parse);
     }
 
-    #[cfg(feature = "csv")]
-    if csv::looks_like_ictrp_csv(content) {
-        #[allow(deprecated)]
-        let parser = IctrpCsvParser::new();
-        return parser
-            .parse(content)
-            .map(|citations| (citations, CitationFormat::IctrpCsv))
-            .map_err(CitationError::Parse);
-    }
-
     Err(CitationError::UnknownFormat)
 }
 
@@ -599,24 +583,6 @@ FAU - Smith, John"#;
         let content = "Some random content\nthat doesn't match\nany known format";
         let result = detect_and_parse(content);
         assert!(matches!(result, Err(CitationError::UnknownFormat)));
-    }
-
-    #[cfg(feature = "csv")]
-    #[allow(deprecated)]
-    #[test]
-    fn test_detect_and_parse_ictrp_csv() {
-        let content = concat!(
-            "TrialID,Public title,Scientific title,Date registration,Date registration3,",
-            "Source Register\n",
-            "NCT00000001,Public,Scientific,01/05/2026,20260501,ClinicalTrials.gov\n"
-        );
-
-        let (citations, format) = detect_and_parse(content).unwrap();
-        assert_eq!(format, CitationFormat::IctrpCsv);
-        assert_eq!(
-            citations[0].accession_number.as_deref(),
-            Some("NCT00000001")
-        );
     }
 }
 
