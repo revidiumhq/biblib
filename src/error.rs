@@ -277,6 +277,7 @@ mod tests {
     fn test_citation_format_display() {
         assert_eq!(format!("{}", CitationFormat::Ris), "RIS");
         assert_eq!(format!("{}", CitationFormat::PubMed), "PubMed");
+        assert_eq!(format!("{}", CitationFormat::PubMedXml), "PubMed XML");
         assert_eq!(format!("{}", CitationFormat::EndNoteXml), "EndNote XML");
         assert_eq!(format!("{}", CitationFormat::IctrpXml), "ICTRP XML");
         assert_eq!(format!("{}", CitationFormat::Enw), "EndNote Tagged");

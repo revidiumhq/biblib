@@ -6,6 +6,7 @@ This guide documents the parsing behaviors, assumptions, and data transformation
 
 - [RIS Format](#ris-format)
 - [PubMed/MEDLINE Format](#pubmedmedline-format)
+- [PubMed XML Format](#pubmed-xml-format)
 - [EndNote XML Format](#endnote-xml-format)
 - [ICTRP XML Format](#ictrp-xml-format)
 - [EndNote Tagged (`.enw`) Format](#endnote-tagged-enw-format)
@@ -27,16 +28,18 @@ RIS (Research Information Systems) uses two-letter tags to identify fields. Each
 | TI, T1, ST | Title | Priority: `TI`, then `T1`, then `ST` |
 | AU, A1-A4 | Authors | All treated as authors; multi-author lines supported |
 | JF | Journal (full) | Priority 1 for journal name |
-| T2 | Secondary title | Priority 2 for journal name |
-| JO | Journal (alt) | Priority 3 for journal name |
+| JO | Journal (alt) | Priority 2 for journal name |
+| SO | Source | Priority 3 for journal name (non-standard; Ovid and Web of Science exports) |
+| T2 | Secondary title | Priority 4 for journal name: Ovid exports put a translated title here, but it still names the book of a `CHAP` record |
 | JA | Journal abbreviation | Priority 1 for abbreviation |
 | J2 | Alt abbreviation | Priority 2 for abbreviation |
-| PY, Y1 | Publication date | Format: `YYYY/MM/DD/extra` |
+| PY, Y1, DA | Publication date | Priority: `PY`, then `Y1`, then `DA`. Format: `YYYY/MM/DD/extra` |
 | VL | Volume | |
 | IS | Issue | |
 | SP, EP | Start/End page | Combined into page range |
 | DO | DOI | |
 | AN | Accession number | Mapped to `accession_number` |
+| C2 | PMC ID or PMID | A value containing `PMC` is the PMC ID; an all-digit value (up to 9 digits) is the PMID |
 | AB, N2 | Abstract | AB takes priority |
 | KW | Keywords | One per line |
 | SN | ISSN/ISBN | |
@@ -61,7 +64,7 @@ AU  - Smith, J.; Doe, A. & Brown, B.
 
 ### Date Parsing
 
-Dates are parsed from `PY` or `Y1` fields in format: `YYYY/MM/DD/extra`
+Dates are parsed from the `PY`, `Y1` or `DA` field (first present, in that order) in format: `YYYY/MM/DD/extra`
 
 - Year is required
 - Month and day are optional
@@ -160,6 +163,41 @@ LID - 10.1234/example [doi]
 
 - Missing `TI` alone does not invalidate an otherwise usable PubMed record.
 - When no title is present, parsing still succeeds and `citation.title` is left empty.
+
+## PubMed XML Format
+
+PubMed's XML export and the E-utilities `efetch` response: a `<PubmedArticleSet>` of journal articles (`<PubmedArticle>`) and NCBI Bookshelf books and chapters (`<PubmedBookArticle>`), parsed in document order. Values follow the PubMed (`.nbib`) parser, so the XML and `.nbib` exports of the same search give the same fields.
+
+### Element Mappings
+
+| Element | Field | Notes |
+|---------|-------|-------|
+| `MedlineCitation/PMID` | PMID | `BookDocument/PMID` for books |
+| `ArticleTitle` | Title | Inline markup (`<i>`, `<sup>`) keeps its text in reading order; falls back to `VernacularTitle`, then (books) `BookTitle` |
+| `AuthorList/Author` | Authors | `LastName` + `ForeName` (or `Initials`); `CollectiveName` as the name of a group; `AffiliationInfo/Affiliation` as affiliations. Every list is read, including book editors |
+| `Journal/Title` | Journal | |
+| `MedlineJournalInfo/MedlineTA` | Journal abbreviation | Falls back to `Journal/ISOAbbreviation` |
+| `JournalIssue/PubDate` | Date | `Year` / `Month` (name or number) / `Day`, or free-text `MedlineDate` (first year) |
+| `Volume`, `Issue` | Volume, issue | |
+| `Pagination/MedlinePgn` | Pages | As written, like `.nbib` `PG` |
+| `Journal/ISSN`, `ISSNLinking` | ISSN | As `1533-4406 (Electronic)`, `0028-4793 (Linking)`, like `.nbib` `IS`; `Book/Isbn` for books |
+| `ELocationID[@EIdType="doi"]` | DOI | Falls back to `ArticleIdList/ArticleId[@IdType="doi"]` (never a `ReferenceList` entry) |
+| `ArticleId[@IdType="pmc"]` | PMC ID | |
+| `ArticleId[@IdType="bookaccession"]` | Accession number | Books (`NBK…`) |
+| `Abstract/AbstractText` | Abstract | Labelled sections as `LABEL: text`, joined by spaces |
+| `PublicationType` | Citation type | |
+| `MeshHeading` | MeSH terms | `Descriptor/Qualifier`, `*` marking a major topic, like `.nbib` `MH` |
+| `KeywordList/Keyword` | Keywords | |
+| `Language` | Language | Several joined with ` AND ` |
+| `Book/Publisher/PublisherName` | Publisher | Books |
+| `Book/BookTitle` | `extra_fields["BTI"]` | For a chapter; a whole book uses it as the title |
+| `Book/CollectionTitle` | `extra_fields["CTI"]` | |
+
+### Entities and Validation
+
+- Only the predefined entities (`&amp;`, `&lt;`, …) and character references (`&#x2013;`) are resolved. Entities declared in a DTD are never expanded; a reference to one is a syntax error.
+- Malformed XML, input truncated inside a record, and elements nested more than 128 levels deep are syntax errors.
+- A record without a title is kept, with `citation.title` empty.
 
 ## EndNote XML Format
 
