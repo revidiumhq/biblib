@@ -419,6 +419,51 @@ fn joined(values: Vec<String>) -> Option<String> {
     (!values.is_empty()).then(|| values.join(" AND "))
 }
 
+/// Left-pad to two characters with `0`, as `.nbib` dates are written.
+fn two_digits(date: &Element, name: &str) -> Option<String> {
+    date.child_text(name).map(|value| format!("{:0>2}", value))
+}
+
+/// A `<PubMedPubDate>` as `.nbib` writes it: `2020/12/11 06:00`, with
+/// `00:00` when the time is missing.
+fn history_stamp(date: &Element) -> Option<String> {
+    Some(format!(
+        "{}/{}/{} {}:{}",
+        date.child_text("Year")?,
+        two_digits(date, "Month")?,
+        two_digits(date, "Day")?,
+        two_digits(date, "Hour").unwrap_or_else(|| "00".to_string()),
+        two_digits(date, "Minute").unwrap_or_else(|| "00".to_string())
+    ))
+}
+
+/// History dates under their `.nbib` tags: `EDAT` (added to PubMed), `MHDA`
+/// (MeSH added) and `CRDT` (record created), and every date as `PHST`, e.g.
+/// `2020/12/11 06:00 [pubmed]`.
+fn history_fields(data: &Element, fields: &mut HashMap<String, Vec<String>>) {
+    for date in data.child("History").all("PubMedPubDate") {
+        let Some(stamp) = history_stamp(date) else {
+            continue;
+        };
+        let status = date.attribute("PubStatus").unwrap_or_default();
+        let tag = match status {
+            "pubmed" => Some("EDAT"),
+            "medline" => Some("MHDA"),
+            "entrez" => Some("CRDT"),
+            _ => None,
+        };
+        if let Some(tag) = tag {
+            fields
+                .entry(tag.to_string())
+                .or_insert_with(|| vec![stamp.clone()]);
+        }
+        fields
+            .entry("PHST".to_string())
+            .or_default()
+            .push(format!("{} [{}]", stamp, status));
+    }
+}
+
 fn article_to_citation(root: &Element) -> Citation {
     let medline = root.child("MedlineCitation");
     let article = medline.child("Article");
@@ -443,6 +488,21 @@ fn article_to_citation(root: &Element) -> Citation {
         .collect();
     if let Some(linking) = journal_info.child_text("ISSNLinking") {
         issn.push(format!("{} (Linking)", linking));
+    }
+
+    let mut extra_fields = HashMap::new();
+    history_fields(root.child("PubmedData"), &mut extra_fields);
+    // `DEP`: the electronic publication date, as `20201210`.
+    if let Some(date) = article
+        .all("ArticleDate")
+        .find(|date| date.attribute("DateType") == Some("Electronic"))
+        && let (Some(year), Some(month), Some(day)) = (
+            date.child_text("Year"),
+            two_digits(date, "Month"),
+            two_digits(date, "Day"),
+        )
+    {
+        extra_fields.insert("DEP".to_string(), vec![format!("{}{}{}", year, month, day)]);
     }
 
     Citation {
@@ -475,7 +535,7 @@ fn article_to_citation(root: &Element) -> Citation {
         language: joined(texts(article.all("Language"))),
         mesh_terms: mesh_terms(medline),
         publisher: None,
-        extra_fields: HashMap::new(),
+        extra_fields,
     }
 }
 
@@ -507,6 +567,7 @@ fn book_to_citation(root: &Element) -> Citation {
     if let Some(collection) = book.child_text("CollectionTitle") {
         extra_fields.insert("CTI".to_string(), vec![collection]);
     }
+    history_fields(root.child("PubmedBookData"), &mut extra_fields);
 
     Citation {
         citation_type: texts(document.all("PublicationType")),

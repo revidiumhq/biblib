@@ -192,6 +192,8 @@ PubMed's XML export and the E-utilities `efetch` response: a `<PubmedArticleSet>
 | `Book/Publisher/PublisherName` | Publisher | Books |
 | `Book/BookTitle` | `extra_fields["BTI"]` | For a chapter; a whole book uses it as the title |
 | `Book/CollectionTitle` | `extra_fields["CTI"]` | |
+| `History/PubMedPubDate` | `extra_fields["EDAT"]`, `["MHDA"]`, `["CRDT"]`, `["PHST"]` | As `.nbib` writes them: `2020/12/11 06:00`. `EDAT` from `PubStatus="pubmed"`, `MHDA` from `"medline"`, `CRDT` from `"entrez"`; every date as `PHST` with its status, e.g. `2020/12/11 06:00 [pubmed]` |
+| `ArticleDate[@DateType="Electronic"]` | `extra_fields["DEP"]` | As `20201210` |
 
 ### Entities and Validation
 

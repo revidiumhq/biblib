@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **PubMed XML parser** (`PubMedXmlParser`, `xml` feature): reads PubMed's XML export and E-utilities `efetch` responses, including NCBI Bookshelf books and chapters (`<PubmedBookArticle>`), in document order. Values follow the `.nbib` parser (MeSH as `Descriptor/*Qualifier`, ISSNs as `1234-5678 (Electronic)`, the MEDLINE journal abbreviation), so the two exports of a search give the same citations; book editors are listed with the authors. `detect_and_parse` recognises it by its `<PubmedArticleSet>` root element; such files were previously handed to the EndNote XML parser and returned zero citations.
+- **PubMed XML parser** (`PubMedXmlParser`, `xml` feature): reads PubMed's XML export and E-utilities `efetch` responses, including NCBI Bookshelf books and chapters (`<PubmedBookArticle>`), in document order. Values follow the `.nbib` parser (MeSH as `Descriptor/*Qualifier`, ISSNs as `1234-5678 (Electronic)`, the MEDLINE journal abbreviation, and the `EDAT` / `MHDA` / `CRDT` / `PHST` / `DEP` history dates in `extra_fields`), so the two exports of a search give the same citations; book editors are listed with the authors. `detect_and_parse` recognises it by its `<PubmedArticleSet>` root element; such files were previously handed to the EndNote XML parser and returned zero citations.
 
 ### Changed
 

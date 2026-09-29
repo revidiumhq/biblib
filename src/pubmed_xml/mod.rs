@@ -179,6 +179,36 @@ mod tests {
     }
 
     #[test]
+    fn keeps_history_dates_under_their_nbib_tags() {
+        let xml = ARTICLE
+            .replace(
+                "<History><PubMedPubDate PubStatus=\"pubmed\"><Year>2019</Year><Month>3</Month><Day>22</Day></PubMedPubDate></History>",
+                "<History><PubMedPubDate PubStatus=\"received\"><Year>2018</Year><Month>11</Month><Day>2</Day></PubMedPubDate>\
+<PubMedPubDate PubStatus=\"entrez\"><Year>2019</Year><Month>3</Month><Day>21</Day><Hour>12</Hour><Minute>20</Minute></PubMedPubDate>\
+<PubMedPubDate PubStatus=\"pubmed\"><Year>2019</Year><Month>3</Month><Day>22</Day><Hour>6</Hour><Minute>0</Minute></PubMedPubDate>\
+<PubMedPubDate PubStatus=\"medline\"><Year>2019</Year><Month>4</Month><Day>1</Day><Hour>6</Hour></PubMedPubDate></History>",
+            )
+            .replace(
+                "<Pagination>",
+                "<ArticleDate DateType=\"Electronic\"><Year>2019</Year><Month>03</Month><Day>7</Day></ArticleDate><Pagination>",
+            );
+        let c = &parse(&xml)[0];
+        assert_eq!(c.extra_fields["EDAT"], vec!["2019/03/22 06:00"]);
+        assert_eq!(c.extra_fields["CRDT"], vec!["2019/03/21 12:20"]);
+        assert_eq!(c.extra_fields["MHDA"], vec!["2019/04/01 06:00"]);
+        assert_eq!(
+            c.extra_fields["PHST"],
+            vec![
+                "2018/11/02 00:00 [received]",
+                "2019/03/21 12:20 [entrez]",
+                "2019/03/22 06:00 [pubmed]",
+                "2019/04/01 06:00 [medline]"
+            ]
+        );
+        assert_eq!(c.extra_fields["DEP"], vec!["20190307"]);
+    }
+
+    #[test]
     fn keeps_every_author_including_same_names_and_groups() {
         let c = &parse(ARTICLE)[0];
         let names: Vec<_> = c.authors.iter().map(|a| a.name.as_str()).collect();
@@ -230,6 +260,7 @@ mod tests {
         assert_eq!(chapter.title, "Cystic Fibrosis");
         assert_eq!(chapter.extra_fields["BTI"], vec!["GeneReviews®"]);
         assert_eq!(chapter.extra_fields["CTI"], vec!["GeneReviews"]);
+        assert_eq!(chapter.extra_fields["EDAT"], vec!["2010/03/20 00:00"]);
         assert_eq!(chapter.journal, None);
         // Chapter authors first, then the book's editors.
         let names: Vec<_> = chapter.authors.iter().map(|a| a.name.as_str()).collect();
