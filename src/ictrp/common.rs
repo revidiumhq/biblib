@@ -1,6 +1,5 @@
 use crate::Date;
 
-#[cfg(feature = "xml")]
 pub(crate) const ICTRP_URL_FIELD_KEYS: &[&str] = &[
     "web address",
     "results url link",
@@ -10,7 +9,6 @@ pub(crate) const ICTRP_URL_FIELD_KEYS: &[&str] = &[
     "results_url_protocol",
 ];
 
-#[cfg(feature = "xml")]
 pub(crate) fn is_ictrp_url_field(key: &str) -> bool {
     ICTRP_URL_FIELD_KEYS.contains(&key)
 }

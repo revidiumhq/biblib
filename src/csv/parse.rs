@@ -16,7 +16,7 @@ pub fn csv_parse<S: AsRef<str>>(
     csv_parse_with_format(csv_text, config, CitationFormat::Csv)
 }
 
-/// Maps csv record positions to real source lines and byte offsets.
+/// Maps csv record positions to real source lines.
 ///
 /// A csv `Position` points at the first line terminator skipped before the
 /// record (the `LF` of a `CRLF`, or a run of blank lines), and its line counter
@@ -38,8 +38,8 @@ impl<'a> SourceLines<'a> {
         }
     }
 
-    /// `(line, byte offset)` of the first byte of the record reported at `byte`.
-    fn record_start(&mut self, byte: usize) -> (usize, usize) {
+    /// 1-based line of the first byte of the record reported at `byte`.
+    fn record_line(&mut self, byte: usize) -> usize {
         let mut start = byte.min(self.bytes.len());
         while start < self.bytes.len() && matches!(self.bytes[start], b'\r' | b'\n') {
             start += 1;
@@ -54,7 +54,7 @@ impl<'a> SourceLines<'a> {
             .filter(|&&b| b == b'\n')
             .count();
         self.mark = (start, mark_line + newlines);
-        (self.mark.1, start)
+        self.mark.1
     }
 }
 
@@ -132,7 +132,7 @@ pub(crate) fn csv_parse_with_format<S: AsRef<str>>(
             // Extract position information from csv::Error if available
             if let Some(position) = e.position() {
                 ParseError::at_line(
-                    lines.record_start(position.byte() as usize).0,
+                    lines.record_line(position.byte() as usize),
                     format.clone(),
                     ValueError::Syntax(format!("CSV parsing error: {}", e)),
                 )
@@ -150,13 +150,13 @@ pub(crate) fn csv_parse_with_format<S: AsRef<str>>(
             continue;
         }
 
-        let (record_line, byte_offset) = match record.position() {
-            Some(position) => lines.record_start(position.byte() as usize),
-            None => (line_number, 0),
+        let record_line = match record.position() {
+            Some(position) => lines.record_line(position.byte() as usize),
+            None => line_number,
         };
 
         let raw_citation =
-            RawCsvData::from_record(&headers, &record, config, record_line, byte_offset, &format)?;
+            RawCsvData::from_record(&headers, &record, config, record_line, &format)?;
 
         if raw_citation.has_content() {
             raw_citations.push(raw_citation);
