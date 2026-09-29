@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **New `CitationFormat::PubMedXml` variant**: `CitationFormat` is not `#[non_exhaustive]`, so exhaustive `match`es on it need a new arm.
+
+### Added
+
+- **PubMed XML parser** (`PubMedXmlParser`, `xml` feature): reads PubMed's XML export and E-utilities `efetch` responses, including NCBI Bookshelf books and chapters (`<PubmedBookArticle>`), in document order. Values follow the `.nbib` parser (MeSH as `Descriptor/*Qualifier`, ISSNs as `1234-5678 (Electronic)`, the MEDLINE journal abbreviation, and the `EDAT` / `MHDA` / `CRDT` / `PHST` / `DEP` history dates in `extra_fields`), so the two exports of a search give the same citations; book editors are listed with the authors. `detect_and_parse` recognises it by its `<PubmedArticleSet>` root element; such files were previously handed to the EndNote XML parser and returned zero citations.
+
+### Changed
+
+- **RIS journal priority**: the journal is now taken from `JF`, then `JO`, then `SO`, then `T2`. `T2` used to rank above `JO`, so in Ovid exports, which put a translated or secondary title in `T2`, that title became the journal. `T2` still names the book of a `CHAP` record when no other journal tag is present.
+- **RIS `C2` PMIDs**: an all-digit `C2` value is now read as the PMID. Several exporters write the PMID there; it used to be dropped because only values containing `PMC` were kept (as the PMC ID).
+
 ### Fixed
+
+- **RIS `DA` and `SO` tags**: a date only in `DA` is now used when `PY` and `Y1` are absent, and a journal only in the non-standard `SO` tag is now used as the journal. Both used to be left in `extra_fields`.
 
 - **EndNote XML text**: entity and character references (`&amp;`, `&#x3B1;`) and CDATA sections were dropped from field text, and spaces between inline `<style>` runs were lost, so `<style>Effect of </style><style>vitamin D</style>` read as `Effect ofvitamin D`. Text is now collected in full and trimmed once per field. An unsupported entity reference is now a syntax error, as in the ICTRP XML parser.
 - **EndNote XML truncated records**: input ending inside a `<record>` or `<dates>` element was accepted silently; it is now an "Unexpected EOF" error, like truncation inside a field.

@@ -40,12 +40,16 @@ pub enum RisTag {
     JournalAbbreviationAlternative,
     /// T2 - Secondary title (journal title alternative)
     SecondaryTitle,
+    /// SO - Source (non-standard; the journal name in some Ovid and Web of Science exports)
+    Source,
     /// PY - Publication year
     PublicationYear,
     /// Y1 - Primary date
     DatePrimary,
     /// Y2 - Access date
     DateAccess,
+    /// DA - Date
+    Date,
     /// VL - Volume number
     Volume,
     /// IS - Issue number
@@ -84,7 +88,7 @@ pub enum RisTag {
     Language,
     /// PB - Publisher
     Publisher,
-    /// C2 - PMCID
+    /// C2 - PMCID, or a PMID when the value is numeric
     PmcId,
     /// M3 - Type of Work
     WorkType,
@@ -112,9 +116,11 @@ impl RisTag {
             "JA" => RisTag::JournalAbbreviation,
             "J2" => RisTag::JournalAbbreviationAlternative,
             "T2" => RisTag::SecondaryTitle,
+            "SO" => RisTag::Source,
             "PY" => RisTag::PublicationYear,
             "Y1" => RisTag::DatePrimary,
             "Y2" => RisTag::DateAccess,
+            "DA" => RisTag::Date,
             "VL" => RisTag::Volume,
             "IS" => RisTag::Issue,
             "SP" => RisTag::StartPage,
@@ -158,9 +164,11 @@ impl RisTag {
             RisTag::JournalAbbreviation => "JA",
             RisTag::JournalAbbreviationAlternative => "J2",
             RisTag::SecondaryTitle => "T2",
+            RisTag::Source => "SO",
             RisTag::PublicationYear => "PY",
             RisTag::DatePrimary => "Y1",
             RisTag::DateAccess => "Y2",
+            RisTag::Date => "DA",
             RisTag::Volume => "VL",
             RisTag::Issue => "IS",
             RisTag::StartPage => "SP",
@@ -204,13 +212,16 @@ impl RisTag {
     ///
     /// Priority order:
     /// 1. JF (Journal Full) - primary full journal name
-    /// 2. T2 (Secondary Title) - alternative journal title
-    /// 3. JO (Journal Full Alternative) - alternative full name
+    /// 2. JO (Journal Full Alternative) - alternative full name
+    /// 3. SO (Source) - journal name in some Ovid and Web of Science exports
+    /// 4. T2 (Secondary Title) - last, because Ovid exports put a translated or
+    ///    secondary title there; it still names the book of a `CHAP` record
     pub fn journal_priority(&self) -> Option<u8> {
         match self {
             RisTag::JournalFull => Some(1),
-            RisTag::SecondaryTitle => Some(2),
-            RisTag::JournalFullAlternative => Some(3),
+            RisTag::JournalFullAlternative => Some(2),
+            RisTag::Source => Some(3),
+            RisTag::SecondaryTitle => Some(4),
             _ => None,
         }
     }
@@ -242,6 +253,8 @@ mod tests {
     #[case("AU", RisTag::Author)]
     #[case("JF", RisTag::JournalFull)]
     #[case("AN", RisTag::AccessionNumber)]
+    #[case("DA", RisTag::Date)]
+    #[case("SO", RisTag::Source)]
     #[case("ER", RisTag::EndOfReference)]
     #[case("UNKNOWN", RisTag::Unknown("UNKNOWN".to_string()))]
     fn test_from_tag(#[case] input: &str, #[case] expected: RisTag) {

@@ -338,7 +338,7 @@ pub fn split_given_and_middle(full_given: &str) -> (Option<String>, Option<Strin
 /// # Arguments
 ///
 /// * `date_str` - The date string to parse
-#[cfg(any(feature = "pubmed", feature = "enw"))]
+#[cfg(any(feature = "pubmed", feature = "enw", feature = "xml"))]
 pub fn parse_pubmed_date(date_str: &str) -> Option<Date> {
     let date_str = date_str.trim();
 
@@ -547,8 +547,8 @@ pub fn parse_year_only(year_str: &str) -> Option<Date> {
 }
 
 /// Helper function to parse month names to month numbers
-#[cfg(any(feature = "bib", feature = "enw", feature = "pubmed"))]
-fn parse_month_name(month_str: &str) -> Option<u8> {
+#[cfg(any(feature = "bib", feature = "enw", feature = "pubmed", feature = "xml"))]
+pub(crate) fn parse_month_name(month_str: &str) -> Option<u8> {
     match month_str.to_lowercase().as_str() {
         "jan" | "january" => Some(1),
         "feb" | "february" => Some(2),

@@ -10,9 +10,9 @@
 //!
 //! # What You Get
 //!
-//! - Dedicated parsers for RIS, PubMed / MEDLINE, EndNote XML, ICTRP XML,
-//!   EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), generic CSV, and
-//!   ICTRP CSV exports
+//! - Dedicated parsers for RIS, PubMed / MEDLINE (`.nbib` and XML), EndNote
+//!   XML, ICTRP XML, EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`),
+//!   generic CSV, and ICTRP CSV exports
 //! - A shared [`Citation`] output type with normalized identifiers such as DOI,
 //!   PMID, PMCID, and `accession_number`
 //! - Preservation of source-specific leftovers through `extra_fields`
@@ -42,12 +42,13 @@
 //! ```rust
 //! use biblib::{
 //!     BibParser, CitationParser, EndNoteXmlParser, EnwParser, IctrpXmlParser, PubMedParser,
-//!     RisParser,
+//!     PubMedXmlParser, RisParser,
 //! };
 //! use biblib::csv::CsvParser;
 //!
 //! let _ris = RisParser::new();
 //! let _pubmed = PubMedParser::new();
+//! let _pubmed_xml = PubMedXmlParser::new();
 //! let _endnote = EndNoteXmlParser::new();
 //! let _ictrp_xml = IctrpXmlParser::new();
 //! let _enw = EnwParser::new();
@@ -57,8 +58,8 @@
 //!
 //! # Auto-Detection
 //!
-//! [`detect_and_parse`] currently auto-detects RIS, PubMed, ICTRP XML,
-//! EndNote XML, EndNote Tagged, BibTeX / BibLaTeX, and ICTRP CSV. ICTRP XML
+//! [`detect_and_parse`] currently auto-detects RIS, PubMed, PubMed XML, ICTRP
+//! XML, EndNote XML, EndNote Tagged, BibTeX / BibLaTeX, and ICTRP CSV. ICTRP XML
 //! is the preferred ICTRP ingestion path; ICTRP CSV remains for backward
 //! compatibility. Generic CSV remains explicit because header mapping is
 //! application-specific.
@@ -163,6 +164,8 @@ pub mod enw;
 pub mod error;
 #[cfg(feature = "pubmed")]
 pub mod pubmed;
+#[cfg(feature = "xml")]
+pub mod pubmed_xml;
 #[cfg(feature = "ris")]
 pub mod ris;
 
@@ -185,6 +188,8 @@ pub use error::{CitationError, ParseError, SourceSpan, ValueError};
 pub use ictrp::xml::IctrpXmlParser;
 #[cfg(feature = "pubmed")]
 pub use pubmed::PubMedParser;
+#[cfg(feature = "xml")]
+pub use pubmed_xml::PubMedXmlParser;
 #[cfg(feature = "ris")]
 pub use ris::RisParser;
 
@@ -204,6 +209,7 @@ pub mod ictrp_xml {
 pub enum CitationFormat {
     Ris,
     PubMed,
+    PubMedXml,
     EndNoteXml,
     IctrpXml,
     Enw,
@@ -219,6 +225,7 @@ impl CitationFormat {
         match self {
             CitationFormat::Ris => "RIS",
             CitationFormat::PubMed => "PubMed",
+            CitationFormat::PubMedXml => "PubMed XML",
             CitationFormat::EndNoteXml => "EndNote XML",
             CitationFormat::IctrpXml => "ICTRP XML",
             CitationFormat::Enw => "EndNote Tagged",
@@ -383,6 +390,16 @@ pub fn detect_and_parse(
             .map_err(CitationError::Parse);
     }
 
+    // Before the EndNote XML fallback below, which takes any other `<?xml` input.
+    #[cfg(feature = "xml")]
+    if pubmed_xml::looks_like_pubmed_xml(content) {
+        let parser = PubMedXmlParser::new();
+        return parser
+            .parse(content)
+            .map(|citations| (citations, CitationFormat::PubMedXml))
+            .map_err(CitationError::Parse);
+    }
+
     if trimmed.starts_with("<?xml") || trimmed.starts_with("<xml>") {
         // EndNote XML format
         #[cfg(feature = "xml")]
@@ -508,6 +525,25 @@ FAU - Smith, John"#;
         let (citations, format) = detect_and_parse(content).unwrap();
         assert_eq!(format, CitationFormat::EndNoteXml);
         assert_eq!(citations[0].title, "Test Title");
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn test_detect_and_parse_pubmed_xml() {
+        let content = r#"<?xml version="1.0" ?>
+<!DOCTYPE PubmedArticleSet PUBLIC "-//NLM//DTD PubMedArticle, 1st January 2025//EN" "https://dtd.nlm.nih.gov/ncbi/pubmed/out/pubmed_250101.dtd">
+<PubmedArticleSet>
+<PubmedArticle><MedlineCitation><PMID>1</PMID><Article><ArticleTitle>Test Title</ArticleTitle></Article></MedlineCitation></PubmedArticle>
+</PubmedArticleSet>"#;
+
+        let (citations, format) = detect_and_parse(content).unwrap();
+        assert_eq!(format, CitationFormat::PubMedXml);
+        assert_eq!(citations[0].title, "Test Title");
+        assert_eq!(citations[0].pmid.as_deref(), Some("1"));
+
+        // Without an XML declaration, too.
+        let (_, format) = detect_and_parse("<PubmedArticleSet></PubmedArticleSet>").unwrap();
+        assert_eq!(format, CitationFormat::PubMedXml);
     }
 
     #[cfg(feature = "xml")]

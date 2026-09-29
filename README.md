@@ -16,6 +16,7 @@ It is built for import pipelines, evidence synthesis tooling, registry ingestion
 | --- | --- | --- |
 | RIS | `ris` | `RisParser` |
 | PubMed / MEDLINE (`.nbib`) | `pubmed` | `PubMedParser` |
+| PubMed XML | `xml` | `PubMedXmlParser` |
 | EndNote XML | `xml` | `EndNoteXmlParser` |
 | ICTRP registry XML exports | `xml` | `IctrpXmlParser` |
 | EndNote Tagged / EndNote Web (`.enw`) | `enw` | `EnwParser` |
@@ -123,7 +124,7 @@ assert_eq!(citations[0].doi.as_deref(), Some("10.1000/example"));
 
 ### Auto-detect Supported Formats
 
-`detect_and_parse()` currently auto-detects RIS, PubMed, ICTRP XML, EndNote XML, EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), and ICTRP CSV. ICTRP XML is the preferred ICTRP ingestion path; ICTRP CSV remains supported for backward compatibility. Generic CSV should still be parsed explicitly with `CsvParser`.
+`detect_and_parse()` currently auto-detects RIS, PubMed, PubMed XML, ICTRP XML, EndNote XML, EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), and ICTRP CSV. ICTRP XML is the preferred ICTRP ingestion path; ICTRP CSV remains supported for backward compatibility. Generic CSV should still be parsed explicitly with `CsvParser`.
 
 ```rust
 use biblib::detect_and_parse;
@@ -270,7 +271,7 @@ This makes it easy to normalize aggressively where the library has clear semanti
 | --- | --- |
 | `ris` | RIS parser |
 | `pubmed` | PubMed / MEDLINE parser |
-| `xml` | EndNote XML parser and ICTRP XML parser |
+| `xml` | EndNote XML, ICTRP XML and PubMed XML parsers |
 | `enw` | EndNote Tagged (`.enw`) parser |
 | `bib` | BibTeX / BibLaTeX (`.bib`) parser |
 | `csv` | Generic CSV parser and deprecated ICTRP CSV parser |

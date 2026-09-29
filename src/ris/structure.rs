@@ -204,16 +204,20 @@ impl crate::Citation {
         raw.remove(&RisTag::JournalAbbreviation);
         raw.remove(&RisTag::JournalAbbreviationAlternative);
         raw.remove(&RisTag::SecondaryTitle);
+        raw.remove(&RisTag::Source);
 
         (journal, journal_abbr)
     }
 
     /// Extract date from RIS data with validation.
+    ///
+    /// PY, then Y1, then DA: some exporters write the date only in DA.
     fn extract_date(raw: &mut RawRisData) -> Option<crate::Date> {
         // Parse date from available date fields with validation
         let date = raw
             .get_first(&RisTag::PublicationYear)
             .or_else(|| raw.get_first(&RisTag::DatePrimary))
+            .or_else(|| raw.get_first(&RisTag::Date))
             .and_then(|date_str| {
                 crate::utils::parse_ris_date(date_str)
                 // Note: Invalid dates are silently ignored to avoid breaking parsing
@@ -223,6 +227,7 @@ impl crate::Citation {
         raw.remove(&RisTag::PublicationYear);
         raw.remove(&RisTag::DatePrimary);
         raw.remove(&RisTag::DateAccess);
+        raw.remove(&RisTag::Date);
 
         date
     }
@@ -302,13 +307,19 @@ impl crate::Citation {
     }
 
     /// Extract normalized identifiers while preserving raw reference IDs.
+    ///
+    /// C2 holds a PMCID in most exports, but several exporters write the PMID
+    /// there instead, so an all-digit C2 value is read as the PMID.
     fn extract_identifiers(raw: &mut RawRisData) -> (Option<String>, Option<String>) {
-        let pmc_id = raw
-            .remove(&RisTag::PmcId)
-            .and_then(|v| v.into_iter().next())
-            .filter(|s| s.contains("PMC"));
+        let values = raw.remove(&RisTag::PmcId).unwrap_or_default();
+        let pmc_id = values.iter().find(|s| s.contains("PMC")).cloned();
+        let pmid = values
+            .iter()
+            .map(|s| s.trim())
+            .find(|s| !s.is_empty() && s.len() <= 9 && s.bytes().all(|b| b.is_ascii_digit()))
+            .map(str::to_string);
 
-        (None, pmc_id)
+        (pmid, pmc_id)
     }
 
     /// Extract abstract text from primary or alternative abstract fields.
@@ -580,9 +591,90 @@ mod tests {
         raw.add_data(RisTag::JournalFullAlternative, "Alt Journal".to_string());
 
         // Should skip empty values and pick the next priority
+        assert_eq!(raw.get_best_journal(), Some("Alt Journal".to_string()));
+    }
+
+    #[test]
+    fn test_journal_priority_ranks_secondary_title_last() {
+        // Ovid exports put a translated title in T2 next to the journal in JO.
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::SecondaryTitle, "Titre traduit".to_string());
+        raw.add_data(RisTag::JournalFullAlternative, "Real Journal".to_string());
+        assert_eq!(raw.get_best_journal(), Some("Real Journal".to_string()));
+
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::SecondaryTitle, "Secondary".to_string());
+        raw.add_data(RisTag::Source, "Source Journal".to_string());
+        assert_eq!(raw.get_best_journal(), Some("Source Journal".to_string()));
+
+        // T2 alone still names the book of a chapter.
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::SecondaryTitle, "The Book".to_string());
+        assert_eq!(raw.get_best_journal(), Some("The Book".to_string()));
+    }
+
+    #[test]
+    fn test_source_is_journal_fallback_not_extra_field() {
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::Title, "Test Article".to_string());
+        raw.add_data(RisTag::Source, "Source Journal".to_string());
+
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.journal.as_deref(), Some("Source Journal"));
+        assert!(!citation.extra_fields.contains_key("SO"));
+    }
+
+    #[test]
+    fn test_date_falls_back_to_da() {
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::Title, "Test Article".to_string());
+        raw.add_data(RisTag::Date, "2021/03/04".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
         assert_eq!(
-            raw.get_best_journal(),
-            Some("Secondary Journal".to_string())
+            citation.date,
+            Some(crate::Date {
+                year: 2021,
+                month: Some(3),
+                day: Some(4)
+            })
         );
+        assert!(!citation.extra_fields.contains_key("DA"));
+
+        // PY wins over DA.
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::PublicationYear, "2019".to_string());
+        raw.add_data(RisTag::Date, "2021/03/04".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.date.map(|d| d.year), Some(2019));
+    }
+
+    #[test]
+    fn test_c2_numeric_value_is_pmid() {
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::PmcId, "12345678".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.pmid.as_deref(), Some("12345678"));
+        assert_eq!(citation.pmc_id, None);
+
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::PmcId, "PMC7654321".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.pmid, None);
+        assert_eq!(citation.pmc_id.as_deref(), Some("PMC7654321"));
+
+        // Both, on separate C2 lines; other values are neither.
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::PmcId, "PMC7654321".to_string());
+        raw.add_data(RisTag::PmcId, " 123 ".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.pmid.as_deref(), Some("123"));
+        assert_eq!(citation.pmc_id.as_deref(), Some("PMC7654321"));
+
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::PmcId, "1234567890".to_string());
+        raw.add_data(RisTag::PmcId, "12a".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.pmid, None);
+        assert_eq!(citation.pmc_id, None);
     }
 }
