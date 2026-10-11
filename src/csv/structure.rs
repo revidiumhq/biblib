@@ -140,7 +140,7 @@ impl RawCsvData {
         // Parse date/year
         let date = self
             .get_field("year")
-            .and_then(|year_str| crate::utils::parse_year_only(year_str));
+            .and_then(|year_str| crate::utils::parse_date_text(year_str));
 
         let volume = self.get_field("volume").cloned();
         let issue = self.get_field("issue").cloned();

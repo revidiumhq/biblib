@@ -39,7 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **RIS `DA` and `SO` tags**: `DA` is now used when `PY` and `Y1` are absent or do not parse, and it adds the month and day to a year-only `PY` of the same year. A journal only in the non-standard `SO` tag is now used as the journal.
+- **RIS dates in other forms**: `PY  - 2026.02`, `2026-02-15`, `2026 Feb` and `Feb 15, 2026` gave no date at all, because only `/`-separated dates were read, and the `PY` value was dropped. The RIS, ENW, BibTeX and CSV parsers now share one date reader that handles these forms, and month names, and falls back to a four-digit year (`c2019`, `[2019]`).
+- **RIS `DA` and `SO` tags**: `DA` is now used when `PY` and `Y1` are absent or do not parse, and it fills in the month or day that a `PY` of the same date lacks (`PY  - 2026.02` with `DA  - 2026/02/15` gives 2026-02-15). A journal only in the non-standard `SO` tag is now used as the journal.
 - **PubMed (`.nbib`) duplicate authors**: an `AU` line whose initials did not follow from the `FAU` line before it was read as a second author. Hyphenated given names ("Chi-Hua" is `CH`), multi-part given names and suffixes (`Schafmeister VJ Jr`) all did this; in a sample of 384 real records, 40 (10%) had extra authors.
 - **EndNote XML text**: entity and character references (`&amp;`, `&#x3B1;`) and CDATA sections were dropped from field text, and spaces between inline `<style>` runs were lost, so `<style>Effect of </style><style>vitamin D</style>` read as `Effect ofvitamin D`. Text is now collected in full and trimmed once per field.
 - **EndNote XML date attributes**: `year`, `month` and `day` attribute values are now unescaped like other attributes.

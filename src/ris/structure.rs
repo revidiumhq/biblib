@@ -250,13 +250,14 @@ impl crate::Citation {
     /// Extract date from RIS data with validation.
     ///
     /// The first of PY, Y1 and DA that parses is used: some exporters write
-    /// the date only in DA. When the year comes from PY or Y1 and DA has the
-    /// same year, DA's month and day fill in what PY or Y1 lacks. DA stays in
-    /// `extra_fields` when it adds something the date does not have.
+    /// the date only in DA. Any common date form is read (`2026.02`,
+    /// `2026-02-15`, `2026 Feb`; see [`crate::utils::parse_date_text`]). When
+    /// DA agrees with PY or Y1, it fills in the month or day they lack. DA
+    /// stays in `extra_fields` when it adds something the date does not have.
     fn extract_date(raw: &mut RawRisData) -> Option<crate::Date> {
         let parse = |raw: &RawRisData, tag: &RisTag| {
             raw.get_first(tag)
-                .and_then(|value| crate::utils::parse_ris_date(value))
+                .and_then(|value| crate::utils::parse_date_text(value))
             // Note: Invalid dates are silently ignored to avoid breaking parsing
             // TODO: Collect warnings
         };
@@ -265,9 +266,13 @@ impl crate::Citation {
         let da = parse(raw, &RisTag::Date);
 
         let date = match (primary, &da) {
-            (Some(mut date), Some(da)) if da.year == date.year && date.month.is_none() => {
-                date.month = da.month;
-                date.day = da.day;
+            // DA agrees with PY or Y1 and says more: `PY  - 2026.02` with
+            // `DA  - 2026/02/15`.
+            (Some(mut date), Some(da))
+                if da.year == date.year && date.month.is_none_or(|m| da.month == Some(m)) =>
+            {
+                date.month = date.month.or(da.month);
+                date.day = date.day.or(da.day);
                 Some(date)
             }
             (Some(date), _) => Some(date),
@@ -740,6 +745,51 @@ mod tests {
             })
         );
         assert!(!citation.extra_fields.contains_key("DA"));
+    }
+
+    #[test]
+    fn test_py_in_other_date_forms() {
+        let date = |py: &str| {
+            let mut raw = RawRisData::new();
+            raw.add_data(RisTag::PublicationYear, py.to_string());
+            let citation: crate::Citation = raw.try_into().unwrap();
+            assert!(!citation.extra_fields.contains_key("PY"));
+            citation.date.map(|d| (d.year, d.month, d.day))
+        };
+        assert_eq!(date("2026.02"), Some((2026, Some(2), None)));
+        assert_eq!(date("2026.02.15"), Some((2026, Some(2), Some(15))));
+        assert_eq!(date("2026-02-15"), Some((2026, Some(2), Some(15))));
+        assert_eq!(date("2026 Feb"), Some((2026, Some(2), None)));
+        assert_eq!(date("Feb 15, 2026"), Some((2026, Some(2), Some(15))));
+        assert_eq!(date("c2026"), Some((2026, None, None)));
+    }
+
+    #[test]
+    fn test_da_fills_in_the_day_of_py() {
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::PublicationYear, "2026.02".to_string());
+        raw.add_data(RisTag::Date, "2026/02/15".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(
+            citation.date,
+            Some(crate::Date {
+                year: 2026,
+                month: Some(2),
+                day: Some(15)
+            })
+        );
+        assert!(!citation.extra_fields.contains_key("DA"));
+
+        // A DA with another month is not mixed in, and is kept.
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::PublicationYear, "2026.02".to_string());
+        raw.add_data(RisTag::Date, "2026/03/15".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(
+            citation.date.map(|d| (d.month, d.day)),
+            Some((Some(2), None))
+        );
+        assert_eq!(citation.extra_fields["DA"], vec!["2026/03/15"]);
     }
 
     #[test]

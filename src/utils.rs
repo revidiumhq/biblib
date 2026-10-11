@@ -341,7 +341,7 @@ pub fn split_given_and_middle(full_given: &str) -> (Option<String>, Option<Strin
 /// # Arguments
 ///
 /// * `date_str` - The date string to parse
-#[cfg(any(feature = "pubmed", feature = "enw", feature = "xml"))]
+#[cfg(any(feature = "pubmed", feature = "xml"))]
 pub fn parse_pubmed_date(date_str: &str) -> Option<Date> {
     let date_str = date_str.trim();
 
@@ -395,54 +395,104 @@ pub fn parse_pubmed_date_lenient(date_str: &str) -> Option<Date> {
     })
 }
 
-/// Parses RIS format dates (e.g., "1999/12/25/Christmas edition", "2023/05/30", "2023")
+/// Parses a date written in any of the ways citation files write one, for
+/// the RIS, ENW, BibTeX and CSV parsers:
 ///
-/// # Arguments
-///
-/// * `date_str` - The date string to parse
-#[cfg(any(feature = "ris", feature = "enw"))]
-pub fn parse_ris_date(date_str: &str) -> Option<Date> {
-    let date_str = date_str.trim();
+/// - year first, with `/`, `-`, `.` or a space between the parts:
+///   `2023/05/30/Christmas edition`, `2023-05-30`, `2026.02`, `2023 May 30`,
+///   `2023//`. Text after the day is ignored, and an invalid month ends the
+///   date at the year.
+/// - month names around the year: `May 30, 2023`, `30 May 2023`, `May 2023`.
+/// - otherwise the first four-digit year: `c2019`, `[2019]`, `12/05/2023`
+///   (whose day and month order is ambiguous).
+#[cfg(any(feature = "ris", feature = "enw", feature = "csv", feature = "bib"))]
+pub(crate) fn parse_date_text(text: &str) -> Option<Date> {
+    let text = text.trim();
+    year_first_date(text).or_else(|| date_from_words(text))
+}
 
-    if date_str.is_empty() {
+#[cfg(any(feature = "ris", feature = "enw", feature = "csv", feature = "bib"))]
+fn year_first_date(text: &str) -> Option<Date> {
+    if text.bytes().take_while(u8::is_ascii_digit).count() != 4 {
         return None;
     }
+    let mut date = Date {
+        year: text[..4].parse().ok()?,
+        month: None,
+        day: None,
+    };
+    let rest = &text[4..];
+    let mut parts: Box<dyn Iterator<Item = &str>> = match rest.chars().next() {
+        None => return Some(date),
+        Some(' ') => Box::new(rest.split_whitespace()),
+        Some(separator @ ('/' | '-' | '.')) => Box::new(rest[1..].split(separator)),
+        // "2019a": not a date in parts.
+        Some(_) => return None,
+    };
+    date.month = parts.next().and_then(month_token);
+    if date.month.is_some() {
+        date.day = parts.next().and_then(day_token);
+    }
+    Some(date)
+}
 
-    // Split by '/' and take first 3 parts (year/month/day)
-    let parts: Vec<&str> = date_str.split('/').collect();
-
-    // First part should be year
-    let year = {
-        let year_str = parts.first()?;
-        if !year_str.is_empty() {
-            year_str.parse::<i32>().ok()?
-        } else {
-            return None;
+/// A date with the month as a word (`May 30, 2023`, `30 May 2023`), or just
+/// a four-digit year somewhere in the text.
+#[cfg(any(feature = "ris", feature = "enw", feature = "csv", feature = "bib"))]
+fn date_from_words(text: &str) -> Option<Date> {
+    let words: Vec<&str> = text
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|word| !word.is_empty())
+        .collect();
+    let is_year = |word: &str| word.len() == 4 && word.bytes().all(|b| b.is_ascii_digit());
+    let year = match words.iter().find(|word| is_year(word)) {
+        Some(year) => year.parse().ok()?,
+        None => {
+            return text
+                .split(|c: char| !c.is_ascii_digit())
+                .find(|digits| digits.len() == 4)
+                .and_then(|digits| digits.parse().ok())
+                .map(|year| Date {
+                    year,
+                    month: None,
+                    day: None,
+                });
         }
     };
-
-    let mut month = None;
-    let mut day = None;
-
-    // Second part should be month (if present and not empty)
-    if let Some(month_str) = parts.get(1)
-        && !month_str.is_empty()
-        && let Ok(parsed_month) = month_str.parse::<u8>()
-        && (1..=12).contains(&parsed_month)
-    {
-        month = Some(parsed_month);
-    }
-
-    // Third part should be day (if present and not empty)
-    if let Some(day_str) = parts.get(2)
-        && !day_str.is_empty()
-        && let Ok(parsed_day) = day_str.parse::<u8>()
-        && (1..=31).contains(&parsed_day)
-    {
-        day = Some(parsed_day);
-    }
-
+    let month = words
+        .iter()
+        .find_map(|word| parse_month_name(word.trim_end_matches('.')));
+    let day = month.and_then(|_| {
+        words
+            .iter()
+            .filter(|word| word.len() <= 2)
+            .find_map(|word| day_token(word))
+    });
     Some(Date { year, month, day })
+}
+
+/// A month as a number (`05`) or a name (`May`, `Feb.`).
+#[cfg(any(feature = "ris", feature = "enw", feature = "csv", feature = "bib"))]
+fn month_token(token: &str) -> Option<u8> {
+    let token = token.trim();
+    match token.parse::<u8>() {
+        Ok(month) => (1..=12).contains(&month).then_some(month),
+        Err(_) => parse_month_name(token.trim_end_matches('.')),
+    }
+}
+
+/// A day from the digits a token starts with: `30`, `02T10:00`, `5th`.
+#[cfg(any(feature = "ris", feature = "enw", feature = "csv", feature = "bib"))]
+fn day_token(token: &str) -> Option<u8> {
+    let token = token.trim();
+    let digits = token.bytes().take_while(u8::is_ascii_digit).count();
+    if !(1..=2).contains(&digits) {
+        return None;
+    }
+    token[..digits]
+        .parse::<u8>()
+        .ok()
+        .filter(|day| (1..=31).contains(day))
 }
 
 /// Parses EndNote XML format dates from year attributes
@@ -458,77 +508,6 @@ pub fn parse_endnote_date(year: Option<i32>, month: Option<u8>, day: Option<u8>)
     Some(Date { year, month, day })
 }
 
-/// Parses EndNote Tagged / ENW dates from several common export shapes.
-///
-/// Supported forms include:
-/// - `YYYY`
-/// - `YYYY/MM/DD`
-/// - `YYYY-MM-DD`
-/// - `YYYY Mon DD`
-/// - `Mon DD, YYYY`
-#[cfg(feature = "enw")]
-pub fn parse_enw_date(date_str: &str) -> Option<Date> {
-    let date_str = date_str.trim();
-    if date_str.is_empty() {
-        return None;
-    }
-
-    parse_ris_date(date_str)
-        .or_else(|| parse_iso_like_date(date_str))
-        .or_else(|| parse_pubmed_date(date_str))
-        .or_else(|| parse_month_day_year_date(date_str))
-        .or_else(|| parse_year_only(date_str))
-}
-
-/// Parses BibTeX / BibLaTeX date fields.
-///
-/// Supported forms include:
-/// - `YYYY`
-/// - `YYYY-MM`
-/// - `YYYY/MM`
-/// - `YYYY-MM-DD`
-/// - `YYYY/MM/DD`
-#[cfg(feature = "bib")]
-pub fn parse_bib_date(date_str: &str) -> Option<Date> {
-    let trimmed = date_str.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let delimiter = if trimmed.contains('-') {
-        Some('-')
-    } else if trimmed.contains('/') {
-        Some('/')
-    } else {
-        None
-    };
-
-    let Some(delimiter) = delimiter else {
-        return parse_year_only(trimmed);
-    };
-
-    let parts: Vec<&str> = trimmed.split(delimiter).collect();
-    if parts.is_empty() {
-        return None;
-    }
-
-    let year = parts.first()?.trim().parse::<i32>().ok()?;
-    let month = parse_bib_month_token(parts.get(1)?.trim())?;
-
-    let day = if let Some(day_str) = parts.get(2) {
-        let parsed = day_str.trim().parse::<u8>().ok()?;
-        (1..=31).contains(&parsed).then_some(parsed)
-    } else {
-        None
-    };
-
-    Some(Date {
-        year,
-        month: Some(month),
-        day,
-    })
-}
-
 /// Parses a year and month pair from BibTeX / BibLaTeX fields.
 #[cfg(feature = "bib")]
 pub fn parse_bib_year_month(year_str: &str, month_str: &str) -> Option<Date> {
@@ -542,33 +521,26 @@ pub fn parse_bib_year_month(year_str: &str, month_str: &str) -> Option<Date> {
     })
 }
 
-/// Parses a simple year string into a Date
-///
-/// # Arguments
-///
-/// * `year_str` - The year string to parse
-#[cfg(any(feature = "csv", feature = "bib", feature = "enw"))]
+/// The year of a date (see [`parse_date_text`]), for fields that hold a
+/// year: `2023`, `2023/`, `c2019`.
+#[cfg(any(feature = "bib", feature = "enw"))]
 pub fn parse_year_only(year_str: &str) -> Option<Date> {
-    let year_str = year_str.trim();
-
-    if year_str.is_empty() {
-        return None;
-    }
-
-    // Handle cases like "2023/" or "2023//"
-    let year_part = year_str.split('/').next().unwrap_or(year_str);
-
-    let year = year_part.parse::<i32>().ok()?;
-
-    Some(Date {
-        year,
+    parse_date_text(year_str).map(|date| Date {
+        year: date.year,
         month: None,
         day: None,
     })
 }
 
 /// Helper function to parse month names to month numbers
-#[cfg(any(feature = "bib", feature = "enw", feature = "pubmed", feature = "xml"))]
+#[cfg(any(
+    feature = "bib",
+    feature = "enw",
+    feature = "pubmed",
+    feature = "xml",
+    feature = "ris",
+    feature = "csv"
+))]
 pub(crate) fn parse_month_name(month_str: &str) -> Option<u8> {
     match month_str.to_lowercase().as_str() {
         "jan" | "january" => Some(1),
@@ -594,62 +566,6 @@ fn parse_bib_month_token(month_str: &str) -> Option<u8> {
     }
 
     parse_month_name(month_str)
-}
-
-#[cfg(feature = "enw")]
-fn parse_iso_like_date(date_str: &str) -> Option<Date> {
-    let normalized = date_str.trim();
-    let delimiter = if normalized.contains('-') {
-        '-'
-    } else {
-        return None;
-    };
-
-    let parts: Vec<&str> = normalized.split(delimiter).collect();
-    if parts.len() < 3 {
-        return None;
-    }
-
-    let year = parts.first()?.parse::<i32>().ok()?;
-    let month = parts
-        .get(1)?
-        .parse::<u8>()
-        .ok()
-        .filter(|m| (1..=12).contains(m))?;
-    let day = parts
-        .get(2)?
-        .parse::<u8>()
-        .ok()
-        .filter(|d| (1..=31).contains(d))?;
-
-    Some(Date {
-        year,
-        month: Some(month),
-        day: Some(day),
-    })
-}
-
-#[cfg(feature = "enw")]
-fn parse_month_day_year_date(date_str: &str) -> Option<Date> {
-    let normalized = date_str.replace(',', " ");
-    let parts: Vec<&str> = normalized.split_whitespace().collect();
-    if parts.len() < 3 {
-        return None;
-    }
-
-    let month = parse_month_name(parts[0])?;
-    let day = parts
-        .get(1)?
-        .parse::<u8>()
-        .ok()
-        .filter(|d| (1..=31).contains(d))?;
-    let year = parts.get(2)?.parse::<i32>().ok()?;
-
-    Some(Date {
-        year,
-        month: Some(month),
-        day: Some(day),
-    })
 }
 
 /// Byte length of a leading UTF-8 byte order mark (3), or 0.
@@ -942,34 +858,48 @@ mod tests {
         assert!(date.is_none());
     }
     #[test]
-    fn test_parse_ris_date() {
-        // Test full date
-        let date = parse_ris_date("1999/12/25/Christmas edition").unwrap();
-        assert_eq!(date.year, 1999);
-        assert_eq!(date.month, Some(12));
-        assert_eq!(date.day, Some(25));
-
-        // Test year and month only
-        let date = parse_ris_date("2023/05").unwrap();
-        assert_eq!(date.year, 2023);
-        assert_eq!(date.month, Some(5));
-        assert_eq!(date.day, None);
-
-        // Test year only
-        let date = parse_ris_date("2023").unwrap();
-        assert_eq!(date.year, 2023);
-        assert_eq!(date.month, None);
-        assert_eq!(date.day, None);
-
-        // Test with empty parts
-        let date = parse_ris_date("2023//").unwrap();
-        assert_eq!(date.year, 2023);
-        assert_eq!(date.month, None);
-        assert_eq!(date.day, None);
-
-        // Test empty string
-        let date = parse_ris_date("");
-        assert!(date.is_none());
+    fn test_parse_date_text() {
+        let date = |year, month, day| Some(Date { year, month, day });
+        for (text, expected) in [
+            // Year first, with any of the separators.
+            (
+                "1999/12/25/Christmas edition",
+                date(1999, Some(12), Some(25)),
+            ),
+            ("2023/05", date(2023, Some(5), None)),
+            ("2023", date(2023, None, None)),
+            ("2023//", date(2023, None, None)),
+            ("2023-05-30", date(2023, Some(5), Some(30))),
+            ("2024-05-02T10:00:00Z", date(2024, Some(5), Some(2))),
+            ("2026.02", date(2026, Some(2), None)),
+            ("2026.02.15", date(2026, Some(2), Some(15))),
+            ("2023 May 30", date(2023, Some(5), Some(30))),
+            ("2023 Feb", date(2023, Some(2), None)),
+            ("2023/Feb/15", date(2023, Some(2), Some(15))),
+            // An invalid month ends the date at the year.
+            ("2023/13/45", date(2023, None, None)),
+            ("1999-2000", date(1999, None, None)),
+            ("2019 [cited 2020 Jan 5]", date(2019, None, None)),
+            // Month names around the year.
+            ("May 30, 2023", date(2023, Some(5), Some(30))),
+            ("30 May 2023", date(2023, Some(5), Some(30))),
+            ("Feb. 2026", date(2026, Some(2), None)),
+            ("Spring 2019", date(2019, None, None)),
+            // Otherwise the first four-digit year.
+            ("c2019", date(2019, None, None)),
+            ("[2019]", date(2019, None, None)),
+            ("2019a", date(2019, None, None)),
+            ("12/05/2023", date(2023, None, None)),
+            // No year.
+            ("", None),
+            ("   ", None),
+            ("not-a-date", None),
+            ("bad-date", None),
+            ("n.d.", None),
+            ("99/12", None),
+        ] {
+            assert_eq!(parse_date_text(text), expected, "{text:?}");
+        }
     }
 
     #[test]
@@ -1002,72 +932,6 @@ mod tests {
         for (year, month, day, expected) in test_cases {
             assert_eq!(parse_endnote_date(year, month, day), expected);
         }
-    }
-
-    #[test]
-    fn test_parse_enw_date() {
-        assert_eq!(
-            parse_enw_date("2023"),
-            Some(Date {
-                year: 2023,
-                month: None,
-                day: None,
-            })
-        );
-        assert_eq!(
-            parse_enw_date("2023-05-30"),
-            Some(Date {
-                year: 2023,
-                month: Some(5),
-                day: Some(30),
-            })
-        );
-        assert_eq!(
-            parse_enw_date("May 30, 2023"),
-            Some(Date {
-                year: 2023,
-                month: Some(5),
-                day: Some(30),
-            })
-        );
-        assert_eq!(
-            parse_enw_date("2023 May 30"),
-            Some(Date {
-                year: 2023,
-                month: Some(5),
-                day: Some(30),
-            })
-        );
-        assert_eq!(parse_enw_date("not-a-date"), None);
-    }
-
-    #[test]
-    fn test_parse_bib_date() {
-        assert_eq!(
-            parse_bib_date("2024-05-02"),
-            Some(Date {
-                year: 2024,
-                month: Some(5),
-                day: Some(2),
-            })
-        );
-        assert_eq!(
-            parse_bib_date("2024/05"),
-            Some(Date {
-                year: 2024,
-                month: Some(5),
-                day: None,
-            })
-        );
-        assert_eq!(
-            parse_bib_date("2024"),
-            Some(Date {
-                year: 2024,
-                month: None,
-                day: None,
-            })
-        );
-        assert_eq!(parse_bib_date("bad-date"), None);
     }
 
     #[test]

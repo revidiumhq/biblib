@@ -33,7 +33,7 @@ RIS (Research Information Systems) uses two-letter tags to identify fields. Each
 | T2 | Secondary title | Priority 4 for journal name, because Ovid exports put a translated title here. In a `CHAP` record it is the book title and comes first |
 | JA | Journal abbreviation | Priority 1 for abbreviation |
 | J2 | Alt abbreviation | Priority 2 for abbreviation |
-| PY, Y1, DA | Publication date | The first of `PY`, `Y1`, `DA` that parses; `DA` adds the month and day to a year-only `PY`. Format: `YYYY/MM/DD/extra` |
+| PY, Y1, DA | Publication date | The first of `PY`, `Y1`, `DA` that parses; `DA` fills in the month or day `PY` lacks. See [Date Normalization](#date-normalization) for the forms read |
 | VL | Volume | |
 | IS | Issue | |
 | SP, EP | Start/End page | Combined into page range |
@@ -66,17 +66,15 @@ AU  - Smith, J.; Doe, A. & Brown, B.
 
 ### Date Parsing
 
-Dates are parsed from the first of `PY`, `Y1` and `DA` that parses, in format: `YYYY/MM/DD/extra`
+The date comes from the first of `PY`, `Y1` and `DA` that parses. The RIS standard form is `YYYY/MM/DD/extra`, but exporters also write `2026.02`, `2026-02-15` or `2026 Feb`; every form in [Date Normalization](#date-normalization) is read.
 
-- Year is required
-- Month and day are optional
-- Extra text after third `/` is ignored
-- When `PY` or `Y1` has only a year and `DA` has the same year, `DA`'s month and day are used (`PY  - 2019` with `DA  - 2019/03/04` gives 2019-03-04)
+- When `DA` agrees with `PY` or `Y1`, it fills in the month or day they lack: `PY  - 2019` with `DA  - 2019/03/04` gives 2019-03-04, and `PY  - 2026.02` with `DA  - 2026/02/15` gives 2026-02-15
 - `DA` stays in `extra_fields` when it adds something the date does not have, such as a different year
 
 Examples:
 - `2023/12/25/Christmas edition` → Year: 2023, Month: 12, Day: 25
 - `2023/05` → Year: 2023, Month: 5, Day: None
+- `2026.02` → Year: 2026, Month: 2, Day: None
 - `2023///` → Year: 2023 only
 
 ### DOI Extraction
@@ -312,7 +310,7 @@ EndNote Tagged format is a line-oriented export where each field starts with a p
 | `%Q` | Title fallback | Used when `%T` is absent |
 | `%J`, `%B`, `%S` | Journal / source title | Priority: `%J` then `%B` then `%S` |
 | `%D` | Year | Fallback year-only date source |
-| `%8` | Date | Preferred when parseable |
+| `%8` | Date | Preferred when parseable; see [Date Normalization](#date-normalization) |
 | `%V` | Volume | |
 | `%N` | Issue | |
 | `%P` | Pages | Page formatting reused from shared utilities |
@@ -363,7 +361,7 @@ BibTeX / BibLaTeX uses `@type{key, field = value, ...}` entries with quoted, bra
 | `journal` | `journal` fallback | Used when `journaltitle` is absent |
 | `booktitle` | `journal` fallback | Used when no journal fields are present |
 | `shortjournal`, `journalabbr` | `journal_abbr` | First non-empty value wins |
-| `date` | `date` | Supports `YYYY`, `YYYY-MM`, and `YYYY-MM-DD` |
+| `date` | `date` | Any form in [Date Normalization](#date-normalization), such as `YYYY`, `YYYY-MM`, `YYYY-MM-DD` |
 | `year` + `month` | `date` fallback | `month` accepts numeric or month-name tokens |
 | `volume` | `volume` | |
 | `number`, `issue` | `issue` | `number` takes priority |
@@ -552,6 +550,18 @@ All page values are normalized through `format_page_numbers()`:
 1. Normalize known Unicode dash variants to ASCII `-`
 2. Expand shortened end pages like `1234-45` to `1234-1245`
 3. Preserve non-range values when they are not parseable as a page span
+
+### Date Normalization
+
+The RIS, EndNote Tagged, BibTeX and CSV parsers read free-text dates the same way:
+
+| Form | Examples | Result |
+|------|----------|--------|
+| Year first, separated by `/`, `-`, `.` or a space | `2023/05/30/Christmas edition`, `2023-05-30`, `2026.02`, `2023 May 30` | Year, month and day; text after the day is ignored |
+| Month as a word | `May 30, 2023`, `30 May 2023`, `Feb. 2026` | Year, month and day |
+| Anything else with a four-digit year | `c2019`, `[2019]`, `Spring 2019`, `12/05/2023` | Year only (`12/05/2023` could be May or December) |
+
+An invalid month ends the date at the year (`2023/13/45` → 2023). Text with no four-digit year (`n.d.`) is not a date.
 
 ### ISSN Splitting
 
