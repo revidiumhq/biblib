@@ -1,7 +1,7 @@
 use crate::error::{ParseError, SourceSpan, ValueError, fields};
-use crate::pubmed::author::PubmedAuthor;
+use crate::pubmed::author::{AuthorName, PubmedAuthor};
 use crate::pubmed::tags::PubmedTag;
-use crate::utils::parse_pubmed_date;
+use crate::utils::{format_page_numbers, parse_pubmed_date_lenient};
 use crate::{CitationFormat, Date};
 use std::collections::HashMap;
 
@@ -38,6 +38,22 @@ impl TryFrom<RawPubmedData> for crate::Citation {
             .and_then(|v| v.into_iter().next())
             .map(|v| parse_pubmed_date_err(v, start_line, &record_span))
             .transpose()?;
+        // A book's editors stand in for its authors when it has none, as in
+        // the BibTeX parser; otherwise they stay in `extra_fields`.
+        let authors = if authors.is_empty() {
+            editors(&mut data)
+        } else {
+            authors
+        };
+        let mut issn = data.remove(&PubmedTag::Issn).unwrap_or_default();
+        issn.extend(data.remove(&PubmedTag::Isbn).unwrap_or_default());
+        // A Bookshelf record's NBK ID, e.g. `AID - NBK1116 [bookaccession]`.
+        let accession_number = data
+            .get(&PubmedTag::ArticleIdentifier)
+            .into_iter()
+            .flatten()
+            .find_map(|id| id.strip_suffix(" [bookaccession]"))
+            .map(str::to_string);
 
         Ok(Self {
             citation_type: data
@@ -46,6 +62,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
             title: data
                 .remove(&PubmedTag::Title)
                 .or_else(|| data.remove(&PubmedTag::BookTitle))
+                .or_else(|| data.remove(&PubmedTag::TransliteratedTitle))
                 .and_then(join_if_some)
                 .unwrap_or_default(),
             authors: authors.into_iter().map(|a| a.into()).collect(),
@@ -58,8 +75,13 @@ impl TryFrom<RawPubmedData> for crate::Citation {
             date,
             volume: data.remove(&PubmedTag::Volume).and_then(join_if_some),
             issue: data.remove(&PubmedTag::Issue).and_then(join_if_some),
-            pages: data.remove(&PubmedTag::Pagination).and_then(join_if_some),
-            issn: data.remove(&PubmedTag::Issn).unwrap_or_else(Vec::new),
+            // MEDLINE abbreviates page ranges ("940-5"); they are expanded as
+            // in the other parsers.
+            pages: data
+                .remove(&PubmedTag::Pagination)
+                .and_then(join_if_some)
+                .map(|pages| format_page_numbers(&pages)),
+            issn,
             doi: data
                 .remove(&PubmedTag::LocationId)
                 .unwrap_or_else(Vec::new)
@@ -74,7 +96,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
                         .filter_map(parse_doi_from_lid)
                         .next()
                 }),
-            accession_number: None,
+            accession_number,
             pmid: data
                 .remove(&PubmedTag::PubmedUniqueIdentifier)
                 .and_then(join_if_some),
@@ -82,7 +104,7 @@ impl TryFrom<RawPubmedData> for crate::Citation {
                 .remove(&PubmedTag::PubmedCentralIdentifier)
                 .and_then(join_if_some),
             abstract_text: data.remove(&PubmedTag::Abstract).and_then(join_if_some),
-            keywords: Vec::new(),
+            keywords: data.remove(&PubmedTag::OtherTerm).unwrap_or_default(),
             urls: Vec::new(),
             language: data.remove(&PubmedTag::Language).and_then(join_if_some),
             mesh_terms: data.remove(&PubmedTag::MeshTerms).unwrap_or_else(Vec::new),
@@ -105,14 +127,37 @@ fn join_if_some(v: Vec<String>) -> Option<String> {
     }
 }
 
-/// Wraps [parse_pubmed_date] to change its types.
+/// `FED` (full editor names), or `AU`-style `ED` when there is no `FED`.
+fn editors(data: &mut HashMap<PubmedTag, Vec<String>>) -> Vec<PubmedAuthor> {
+    let names: Vec<AuthorName> = match data.remove(&PubmedTag::FullEditorName) {
+        Some(full) => full.into_iter().map(AuthorName::fau).collect(),
+        None => data
+            .remove(&PubmedTag::Editor)
+            .unwrap_or_default()
+            .into_iter()
+            .map(AuthorName::au)
+            .collect(),
+    };
+    if !names.is_empty() {
+        data.remove(&PubmedTag::Editor);
+    }
+    names
+        .into_iter()
+        .map(|name| PubmedAuthor {
+            name,
+            affiliations: Vec::new(),
+        })
+        .collect()
+}
+
+/// Wraps [parse_pubmed_date_lenient] to change its types.
 fn parse_pubmed_date_err<S: AsRef<str>>(
     date: S,
     start_line: usize,
     record_span: &SourceSpan,
 ) -> Result<Date, ParseError> {
     let s = date.as_ref();
-    parse_pubmed_date(s).ok_or_else(|| {
+    parse_pubmed_date_lenient(s).ok_or_else(|| {
         ParseError::at_line(
             start_line,
             CitationFormat::PubMed,
@@ -120,7 +165,7 @@ fn parse_pubmed_date_err<S: AsRef<str>>(
                 field: fields::DATE,
                 key: "DP",
                 value: s.to_string(),
-                reason: "not a valid date in YYYY MMM D format".to_string(),
+                reason: "no year in the date".to_string(),
             },
         )
         .with_span(record_span.clone())

@@ -431,7 +431,7 @@ fn extract_date(raw: &mut RawEnwRecord) -> Option<crate::Date> {
         .get(&EnwTag::Date)
         .and_then(|values| values.iter().find(|value| !value.trim().is_empty()))
         .cloned()
-        && let Some(date) = crate::utils::parse_enw_date(&date_text)
+        && let Some(date) = crate::utils::parse_date_text(&date_text)
     {
         let _ = raw.take_first_non_empty(&EnwTag::Date);
         return Some(date);

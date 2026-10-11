@@ -5,29 +5,50 @@ use crate::pubmed::tags::PubmedTag;
 use compact_str::CompactString;
 use std::borrow::Cow;
 
-/// Value of `AU` or `FAU` in a PubMed citation.
+/// Value of `AU`, `FAU` or `CN` in a PubMed citation.
 #[derive(PartialEq)]
 pub(crate) struct AuthorName {
     /// Author name value
     name: String,
     /// Is `FAU`
     full: bool,
+    /// Is `CN`: a group name, not split into family and given names
+    collective: bool,
 }
 
 impl AuthorName {
     /// Create an [AuthorName] from an `AU` value.
     pub fn au(name: String) -> Self {
-        AuthorName { name, full: false }
+        AuthorName {
+            name,
+            full: false,
+            collective: false,
+        }
     }
 
     /// Create an [AuthorName] from a `FAU` value.
     pub fn fau(name: String) -> Self {
-        AuthorName { name, full: true }
+        AuthorName {
+            name,
+            full: true,
+            collective: false,
+        }
+    }
+
+    /// Create an [AuthorName] from a `CN` value.
+    pub fn cn(name: String) -> Self {
+        AuthorName {
+            name,
+            full: false,
+            collective: true,
+        }
     }
 
     /// Get the author's last (family) name.
     pub fn last_name(&self) -> &str {
-        let parts = if self.full {
+        let parts = if self.collective {
+            None
+        } else if self.full {
             self.name.split_once(", ")
         } else {
             self.name.rsplit_once(' ')
@@ -41,7 +62,9 @@ impl AuthorName {
 
     /// Get the first initials of the author's (given) names.
     pub fn first_initials(&self) -> CompactString {
-        if self.full {
+        if self.collective {
+            CompactString::const_new("")
+        } else if self.full {
             fau_initials(&self.name)
         } else {
             au_initials(&self.name)
@@ -51,7 +74,9 @@ impl AuthorName {
     /// Get the author's given names as a space-separated string if possible,
     /// otherwise return their first initials.
     pub(crate) fn given_name(&self) -> Option<&str> {
-        if self.full {
+        if self.collective {
+            None
+        } else if self.full {
             self.name.split_once(", ").map(|(_, r)| r)
         } else {
             self.name.rsplit_once(' ').map(|(_, r)| r)
@@ -72,19 +97,27 @@ impl AuthorName {
         }
     }
 
-    /// Check whether an `AU` is equivalent to this name.
+    /// Check whether an `AU` can be the short form of this `FAU`.
     ///
-    /// `AU` may omit middle initials, for example the name "Francis Harry Compton Crick"
-    /// can be represented by any of the following `AU` values: "Crick FH", "Crick FHC".
-    pub fn au_equals(&self, au: &str) -> bool {
-        let (last_name, initials) = au.rsplit_once(' ').unwrap_or((au, ""));
-        self.last_name() == last_name && self.first_initials().starts_with(initials)
+    /// Only the family name is compared. The initials PubMed writes do not
+    /// follow from the full name: "Chi-Hua" is written "CH", "Francisco de
+    /// Assis Guedes de" is "FAG", and a suffix follows them ("Schafmeister VJ
+    /// Jr" for "Schafmeister, V J Jr").
+    pub fn au_matches(&self, au: &str) -> bool {
+        au.strip_prefix(self.last_name())
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
     }
 }
 
 impl std::fmt::Debug for AuthorName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(if self.full { "FAU" } else { "AU" })?;
+        f.write_str(if self.collective {
+            "CN"
+        } else if self.full {
+            "FAU"
+        } else {
+            "AU"
+        })?;
         f.write_str("(")?;
         f.write_str(&self.name)?;
         f.write_str(")")?;
@@ -118,6 +151,8 @@ pub(crate) enum ConsecutiveTag {
     Author,
     /// FAU - Full author name
     FullAuthorName,
+    /// CN - Corporate author: a group listed among the authors
+    CorporateAuthor,
     /// AD - Affiliation
     Affiliation,
 }
@@ -128,6 +163,7 @@ impl ConsecutiveTag {
             PubmedTag::Author => Some(ConsecutiveTag::Author),
             PubmedTag::Affiliation => Some(ConsecutiveTag::Affiliation),
             PubmedTag::FullAuthorName => Some(ConsecutiveTag::FullAuthorName),
+            PubmedTag::CorporateAuthor => Some(ConsecutiveTag::CorporateAuthor),
             _ => None,
         }
     }
@@ -155,6 +191,10 @@ impl PubmedAuthor {
     fn from_fau(au: String) -> Self {
         Self::new(AuthorName::fau(au))
     }
+
+    fn from_cn(cn: String) -> Self {
+        Self::new(AuthorName::cn(cn))
+    }
 }
 
 /// Resolve authors from an ordered list of author-related entries.
@@ -166,18 +206,26 @@ pub(crate) fn resolve_authors(
 ) -> (Vec<PubmedAuthor>, Vec<String>) {
     let mut authors: Vec<PubmedAuthor> = Vec::with_capacity(data.len() / 2 + 1);
     let mut unused_affiliations = Vec::new();
+    // Whether the last author is a FAU still waiting for its AU.
+    let mut fau_without_au = false;
     for (tag, value) in data {
         match tag {
             ConsecutiveTag::Author => {
-                // Add new author if AU is not the same as the previous FAU.
+                // The AU right after a FAU is the same author's short form.
                 let prev = authors.last().map(|a| &a.name);
-                if !prev.is_some_and(|n| n.full && n.au_equals(&value)) {
+                if !(fau_without_au && prev.is_some_and(|n| n.au_matches(&value))) {
                     authors.push(PubmedAuthor::from_au(value));
                 }
+                fau_without_au = false;
             }
             ConsecutiveTag::FullAuthorName => {
                 // FAU always indicates start of new author description
                 authors.push(PubmedAuthor::from_fau(value));
+                fau_without_au = true;
+            }
+            ConsecutiveTag::CorporateAuthor => {
+                authors.push(PubmedAuthor::from_cn(value));
+                fau_without_au = false;
             }
             ConsecutiveTag::Affiliation => {
                 // add affiliation to most recently parsed author
@@ -338,6 +386,57 @@ mod tests {
     }
 
     #[rstest]
+    // Initials that do not follow from the full name, from real records:
+    // a hyphenated given name, particles, and a suffix.
+    #[case("Lu, Chi-Hua", "Lu CH")]
+    #[case("Vasconcelos, Francisco de Assis Guedes de", "Vasconcelos FAG")]
+    #[case("Schafmeister, V J Jr", "Schafmeister VJ Jr")]
+    fn test_resolve_author_pairs_au_with_its_fau(#[case] fau: &str, #[case] au: &str) {
+        let data = vec![
+            (ConsecutiveTag::FullAuthorName, fau.to_string()),
+            (ConsecutiveTag::Author, au.to_string()),
+            (ConsecutiveTag::Affiliation, "Somewhere".to_string()),
+        ];
+        let (authors, _) = resolve_authors(data);
+        assert_eq!(authors.len(), 1);
+        assert_eq!(authors[0].name.name, fau);
+        assert_eq!(authors[0].affiliations, ["Somewhere"]);
+    }
+
+    #[rstest]
+    fn test_resolve_author_second_au_is_another_author() {
+        // Two authors with the same family name; the second has no FAU.
+        let data = vec![
+            (ConsecutiveTag::FullAuthorName, "Wu, Mao-Chang".to_string()),
+            (ConsecutiveTag::Author, "Wu MC".to_string()),
+            (ConsecutiveTag::Author, "Wu CL".to_string()),
+        ];
+        let (authors, _) = resolve_authors(data);
+        let actual: Vec<_> = authors.iter().map(|a| a.name.name.as_str()).collect();
+        assert_eq!(actual, ["Wu, Mao-Chang", "Wu CL"]);
+    }
+
+    #[rstest]
+    fn test_resolve_author_corporate_author_keeps_its_place() {
+        let data = vec![
+            (ConsecutiveTag::FullAuthorName, "Horby, Peter".to_string()),
+            (ConsecutiveTag::Author, "Horby P".to_string()),
+            (
+                ConsecutiveTag::CorporateAuthor,
+                "RECOVERY Collaborative Group".to_string(),
+            ),
+            (ConsecutiveTag::Affiliation, "Oxford".to_string()),
+            (ConsecutiveTag::FullAuthorName, "Lim, Wei Shen".to_string()),
+            (ConsecutiveTag::Author, "Lim WS".to_string()),
+        ];
+        let (authors, _) = resolve_authors(data);
+        let names: Vec<_> = authors.iter().map(|a| a.name.last_name()).collect();
+        assert_eq!(names, ["Horby", "RECOVERY Collaborative Group", "Lim"]);
+        assert_eq!(authors[1].name.given_name(), None);
+        assert_eq!(authors[1].affiliations, ["Oxford"]);
+    }
+
+    #[rstest]
     fn test_resolve_author_leading_affiliations() {
         let data = vec![
             (
@@ -372,6 +471,7 @@ mod tests {
         let author = &authors[0].name;
         assert_eq!(author.name, "Einstein, Albert");
         assert_eq!(author.full, true);
+        assert_eq!(author.collective, false);
         let affiliations = &authors[0].affiliations;
         let expected = [
             "University of Zurich".to_string(),

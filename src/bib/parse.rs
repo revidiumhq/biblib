@@ -898,7 +898,7 @@ fn take_date(fields: &mut HashMap<String, Vec<ResolvedField>>) -> Option<crate::
             .iter()
             .map(ResolvedField::canonical_text)
             .find(|value| !value.trim().is_empty())
-        && let Some(date) = crate::utils::parse_bib_date(&value)
+        && let Some(date) = crate::utils::parse_date_text(&value)
     {
         fields.remove("date");
         return Some(date);

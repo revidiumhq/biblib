@@ -3,7 +3,9 @@
 //! This module provides the core parsing logic for EndNote XML format.
 
 use crate::error::{ParseError, SourceSpan, ValueError};
-use crate::utils::{buffer_position_to_line_number, utf8_bom_len, xml_reader_position};
+use crate::utils::{
+    buffer_position_to_line_number, resolve_xml_reference, utf8_bom_len, xml_reader_position,
+};
 use crate::{Author, Citation, CitationFormat};
 use quick_xml::Reader;
 use quick_xml::XmlVersion;
@@ -48,29 +50,7 @@ fn extract_text_with_position<B: BufRead>(
             // quick-xml reports `&amp;`, `&#x3B1;` etc. as separate events, between
             // the surrounding text events.
             Ok(Event::GeneralRef(e)) => {
-                if let Some(ch) = e
-                    .resolve_char_ref()
-                    .map_err(|e| text_error(current_pos, e.to_string()))?
-                {
-                    text.push(ch);
-                } else {
-                    let name = e
-                        .decode()
-                        .map_err(|e| text_error(current_pos, e.to_string()))?;
-                    match name.as_ref() {
-                        "lt" => text.push('<'),
-                        "gt" => text.push('>'),
-                        "amp" => text.push('&'),
-                        "apos" => text.push('\''),
-                        "quot" => text.push('"'),
-                        other => {
-                            return Err(text_error(
-                                current_pos,
-                                format!("unsupported entity reference &{};", other),
-                            ));
-                        }
-                    }
-                }
+                text.push(resolve_xml_reference(&e).map_err(|e| text_error(current_pos, e))?);
             }
             Ok(Event::End(e)) if e.name() == QName(closing_tag) => break,
             Ok(Event::Eof) => {

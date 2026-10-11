@@ -20,14 +20,9 @@ mod config;
 mod parse;
 mod structure;
 
-#[allow(deprecated)]
-pub use crate::ictrp::csv::IctrpCsvParser;
-pub(crate) use crate::ictrp::looks_like_ictrp_csv;
 use crate::{Citation, CitationFormat, CitationParser};
 pub use config::CsvConfig;
 use parse::csv_parse;
-pub(crate) use parse::csv_parse_with_format;
-pub(crate) use structure::RawCsvData;
 
 /// Parser for CSV-formatted citation data with configurable mappings.
 ///
@@ -466,44 +461,29 @@ Another Paper,Doe J,2024";
         assert_eq!(citations[0].authors[0].name, "Smith");
     }
 
+    /// Line of the "no meaningful content" error for an empty row after `input`.
+    fn empty_row_error_line(input: &str) -> Option<usize> {
+        CsvParser::new().parse(input).unwrap_err().line
+    }
+
     /// Verify that line numbers increase correctly across multiple rows.
     #[test]
     fn test_line_numbers_increase_correctly() {
-        use crate::csv::config::CsvConfig;
-        // 3 data rows — we check their line_number fields directly.
-        let input = "Title,Author\nPaper A,Smith\nPaper B,Jones\nPaper C,Doe";
-        let config = CsvConfig::new();
-        let raw = parse::csv_parse(input, &config).unwrap();
-        assert_eq!(raw.len(), 3);
-        assert_eq!(raw[0].line_number, 2);
-        assert_eq!(raw[1].line_number, 3);
-        assert_eq!(raw[2].line_number, 4);
+        let rows = "Title,Author\nPaper A,Smith\nPaper B,Jones\nPaper C,Doe\n";
+        assert_eq!(empty_row_error_line(&format!("{rows},\n")), Some(5));
     }
 
     #[test]
     fn test_line_numbers_follow_source_lines() {
-        use crate::csv::config::CsvConfig;
-        let config = CsvConfig::new();
         for (input, expected) in [
             // CRLF endings used to be reported one line low.
-            (
-                "Title,Author\r\nA,Smith\r\nB,Jones\r\n",
-                vec![(2, 14), (3, 23)],
-            ),
+            ("Title,Author\r\nA,Smith\r\n,\r\n", 3),
             // Blank lines used to be skipped without counting them.
-            (
-                "Title,Author\n\nA,Smith\n\n\nB,Jones\n",
-                vec![(3, 14), (6, 24)],
-            ),
+            ("Title,Author\n\nA,Smith\n\n\n,\n", 6),
             // A quoted field spanning lines moves the next record down.
-            (
-                "Title,Author\n\"A\nsubtitle\",Smith\nB,Jones\n",
-                vec![(2, 13), (4, 32)],
-            ),
+            ("Title,Author\n\"A\nsubtitle\",Smith\n,\n", 4),
         ] {
-            let raw = parse::csv_parse(input, &config).unwrap();
-            let positions: Vec<_> = raw.iter().map(|r| (r.line_number, r.byte_offset)).collect();
-            assert_eq!(positions, expected, "{input:?}");
+            assert_eq!(empty_row_error_line(input), Some(expected), "{input:?}");
         }
     }
 

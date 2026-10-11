@@ -6,6 +6,7 @@ This guide documents the parsing behaviors, assumptions, and data transformation
 
 - [RIS Format](#ris-format)
 - [PubMed/MEDLINE Format](#pubmedmedline-format)
+- [PubMed XML Format](#pubmed-xml-format)
 - [EndNote XML Format](#endnote-xml-format)
 - [ICTRP XML Format](#ictrp-xml-format)
 - [EndNote Tagged (`.enw`) Format](#endnote-tagged-enw-format)
@@ -27,22 +28,26 @@ RIS (Research Information Systems) uses two-letter tags to identify fields. Each
 | TI, T1, ST | Title | Priority: `TI`, then `T1`, then `ST` |
 | AU, A1-A4 | Authors | All treated as authors; multi-author lines supported |
 | JF | Journal (full) | Priority 1 for journal name |
-| T2 | Secondary title | Priority 2 for journal name |
-| JO | Journal (alt) | Priority 3 for journal name |
+| JO | Journal (alt) | Priority 2 for journal name |
+| SO | Source | Priority 3 for journal name (non-standard; Ovid and Web of Science exports) |
+| T2 | Secondary title | Priority 4 for journal name, because Ovid exports put a translated title here. In a `CHAP` record it is the book title and comes first |
 | JA | Journal abbreviation | Priority 1 for abbreviation |
 | J2 | Alt abbreviation | Priority 2 for abbreviation |
-| PY, Y1 | Publication date | Format: `YYYY/MM/DD/extra` |
+| PY, Y1, DA | Publication date | The first of `PY`, `Y1`, `DA` that parses; `DA` fills in the month or day `PY` lacks. See [Date Normalization](#date-normalization) for the forms read |
 | VL | Volume | |
 | IS | Issue | |
 | SP, EP | Start/End page | Combined into page range |
 | DO | DOI | |
 | AN | Accession number | Mapped to `accession_number` |
+| C2 | PMC ID or PMID | A value containing `PMC` is the PMC ID; an all-digit value (up to 9 digits) is the PMID; other values stay in `extra_fields` |
 | AB, N2 | Abstract | AB takes priority |
 | KW | Keywords | One per line |
 | SN | ISSN/ISBN | |
 | UR, L1-L4, LK | URLs | All collected |
 | ID | Reference ID | Preserved in `extra_fields` |
 | ER | End of reference | Marks end of record |
+
+Journal tags that are not used, such as a translated title in `T2` or a full source citation in `SO`, stay in `extra_fields`; a tag that repeats the chosen journal name is dropped.
 
 ### Multi-Author Handling
 
@@ -61,15 +66,15 @@ AU  - Smith, J.; Doe, A. & Brown, B.
 
 ### Date Parsing
 
-Dates are parsed from `PY` or `Y1` fields in format: `YYYY/MM/DD/extra`
+The date comes from the first of `PY`, `Y1` and `DA` that parses. The RIS standard form is `YYYY/MM/DD/extra`, but exporters also write `2026.02`, `2026-02-15` or `2026 Feb`; every form in [Date Normalization](#date-normalization) is read.
 
-- Year is required
-- Month and day are optional
-- Extra text after third `/` is ignored
+- When `DA` agrees with `PY` or `Y1`, it fills in the month or day they lack: `PY  - 2019` with `DA  - 2019/03/04` gives 2019-03-04, and `PY  - 2026.02` with `DA  - 2026/02/15` gives 2026-02-15
+- `DA` stays in `extra_fields` when it adds something the date does not have, such as a different year
 
 Examples:
 - `2023/12/25/Christmas edition` → Year: 2023, Month: 12, Day: 25
 - `2023/05` → Year: 2023, Month: 5, Day: None
+- `2026.02` → Year: 2026, Month: 2, Day: None
 - `2023///` → Year: 2023 only
 
 ### DOI Extraction
@@ -108,19 +113,24 @@ PubMed format uses multi-character tags with continuation lines for long values.
 |-----|-------|-------|
 | PMID | PubMed ID | Unique identifier |
 | TI | Title | |
+| TI | Title | Falls back to `BTI` (a whole book), then `TT` |
 | AU | Author (short) | Format: `LastName Initials` |
 | FAU | Full author name | Format: `LastName, FirstName MiddleNames` |
+| CN | Group author | An author with no given name, in its place in the list |
+| FED, ED | Editors | The authors of a book that has no `AU` / `FAU`; otherwise kept in `extra_fields` |
 | AD | Affiliation | Associated with preceding author |
 | JT | Full journal title | |
 | TA | Journal abbreviation | |
-| DP | Publication date | Format: `YYYY MMM DD` |
+| DP | Publication date | Format: `YYYY MMM DD`; a free-text date falls back to its first year |
 | VI | Volume | |
 | IP | Issue | |
-| PG | Pagination | |
+| PG | Pagination | Abbreviated ranges expanded, as in the other parsers |
 | LID | Location ID | May contain DOI |
 | AB | Abstract | |
 | MH | MeSH terms | One per line |
-| IS | ISSN | |
+| OT | Keywords | |
+| IS, ISBN | ISSN | ISBNs after ISSNs, as in the other parsers |
+| AID | Accession number | A Bookshelf ID (`NBK1116 [bookaccession]`) |
 | PMC | PMC ID | |
 
 ### Author Handling
@@ -133,7 +143,7 @@ AU  - Watson JD
 AD  - Cambridge University
 ```
 
-**Deduplication**: When `FAU` immediately precedes a matching `AU`, only one author is created.
+**Deduplication**: The `AU` right after a `FAU` with the same family name is that author's short form, so only one author is created. The initials are not compared: PubMed writes "Chi-Hua" as `CH` and adds suffixes (`Schafmeister VJ Jr`).
 
 **Affiliation assignment**: Affiliations (`AD`) are assigned to the most recently parsed author.
 
@@ -145,6 +155,9 @@ Examples:
 - `2023 Jun 15` → Year: 2023, Month: 6, Day: 15
 - `2023 May` → Year: 2023, Month: 5
 - `2023` → Year: 2023 only
+- `1999-2000`, `Summer 2001` → the first four-digit year
+
+A date with no year at all is an error.
 
 ### DOI Extraction
 
@@ -160,6 +173,70 @@ LID - 10.1234/example [doi]
 
 - Missing `TI` alone does not invalidate an otherwise usable PubMed record.
 - When no title is present, parsing still succeeds and `citation.title` is left empty.
+
+## PubMed XML Format
+
+PubMed's XML export and the E-utilities `efetch` response: a `<PubmedArticleSet>` of journal articles (`<PubmedArticle>`) and NCBI Bookshelf books and chapters (`<PubmedBookArticle>`), parsed in document order. Records are mapped the way the PubMed (`.nbib`) parser maps the same records, so both exports of a search give the same citations. This is checked against real `efetch` records in both formats.
+
+The exports still differ where their content does: MEDLINE text transliterates to ASCII (`é` → `e`, `≥` → `>/=`), lists the journal's other ISSNs from the NLM catalog, and has the composite `SO` field and `AID` entries that the XML lacks; the XML keeps conflict-of-interest statements (`COI`) and publisher-supplied abstracts in other languages (`OAB`) that MEDLINE text leaves out.
+
+### Element Mappings
+
+| Element | Field | Notes |
+|---------|-------|-------|
+| `MedlineCitation/PMID` | PMID | `BookDocument/PMID` for books |
+| `ArticleTitle` | Title | Inline markup keeps its text in reading order, with superscripts and subscripts in parentheses as in MEDLINE (`10<sup>7</sup>` → `10(7)`); falls back to `VernacularTitle`, then (books) `BookTitle`. A chapter title ends with a period, as in `.nbib` |
+| `AuthorList/Author` | Authors | `LastName` + `ForeName` (or `Initials`), then any `Suffix`; `CollectiveName` as the name of a group. Affiliations as `.nbib` writes `AD`, followed by their identifiers (`… UK. ROR: https://ror.org/024mrxd33`). A book's editors are its authors only when it has none; otherwise they are `FED` / `ED` |
+| `Journal/Title` | Journal | |
+| `MedlineJournalInfo/MedlineTA` | Journal abbreviation | Falls back to `Journal/ISOAbbreviation` |
+| `JournalIssue/PubDate` | Date | `Year` / `Month` (name or number) / `Day`, or free-text `MedlineDate` (first year) |
+| `Volume`, `Issue` | Volume, issue | |
+| `Pagination/MedlinePgn` | Pages | Falls back to `StartPage`-`EndPage`; abbreviated ranges expanded, as in the other parsers |
+| `Journal/ISSN`, `ISSNLinking` | ISSN | As `1533-4406 (Electronic)`, `0028-4793 (Linking)`, like `.nbib` `IS`; `Book/Isbn` for books |
+| `ELocationID[@EIdType="doi"]` | DOI | Falls back to `ArticleIdList/ArticleId[@IdType="doi"]` (never a `ReferenceList` entry) |
+| `ArticleId[@IdType="pmc"]` | PMC ID | |
+| `ArticleId[@IdType="bookaccession"]` | Accession number | Books (`NBK…`) |
+| `Abstract/AbstractText` | Abstract | Labelled sections as `LABEL: text`, joined by spaces; the placeholder label `UNLABELLED` is left out |
+| `PublicationType` | Citation type | In alphabetical order, as `.nbib` lists `PT`; books add `Book Chapter` or `Book` |
+| `MeshHeading` | MeSH terms | `Descriptor/Qualifier`, `*` marking a major topic, like `.nbib` `MH` |
+| `KeywordList/Keyword` | Keywords | Every list; their owners as `extra_fields["OTO"]` |
+| `Language` | Language | Several joined with ` AND ` |
+| `Book/Publisher/PublisherName` | Publisher | Books |
+| `Book/BookTitle` | `extra_fields["BTI"]` | For a chapter; a whole book uses it as the title |
+| `Book/CollectionTitle` | `extra_fields["CTI"]` | |
+| `History/PubMedPubDate` | `extra_fields["EDAT"]`, `["MHDA"]`, `["CRDT"]`, `["PMCR"]`, `["PHST"]` | As `.nbib` writes them: `2020/12/11 06:00`. `EDAT` from `PubStatus="pubmed"`, `MHDA` from `"medline"`, `CRDT` from `"entrez"`; every date as `PHST` with its status, e.g. `2020/12/11 06:00 [pubmed]`. Books get only `EDAT` and `CRDT` |
+| `ArticleDate[@DateType="Electronic"]` | `extra_fields["DEP"]` | As `20201210` |
+
+Other data is kept in `extra_fields` under its `.nbib` tag and in the `.nbib` format:
+
+| Element | Tag | Format |
+|---------|-----|--------|
+| `MedlineCitation/@Owner`, `@Status` | `OWN`, `STAT` | |
+| `DateCompleted`, `DateRevised` | `DCOM`, `LR` (books: `DRDT`) | `20210301` |
+| `ContributionDate` (books) | `CTDT` | `20190919` |
+| `Abstract/CopyrightInformation` | `CI` | |
+| `OtherAbstract` | `OAB`, `OABL` | Text and language |
+| `Author/Identifier` | `AUID` | `ORCID: 0000-0002-1825-0097` |
+| `DataBank` | `SI` | `ClinicalTrials.gov/NCT04381936` |
+| `Grant` | `GR` | `GrantID/Acronym/Agency/Country` |
+| `MedlineJournalInfo/Country`, `Publisher/PublisherLocation` | `PL` | |
+| `NlmUniqueID` | `JID` | |
+| `Chemical`, `SupplMeshName` | `RN` | `7S5I7G3JQL (Dexamethasone)` |
+| `CitationSubset` | `SB` | |
+| `CommentsCorrections` | `CIN`, `CON`, `EIN`, `EFR`, `RIN`, `ROF`, `ECI`, `UOF`, … | `RefSource PMID: 33045189` |
+| `InvestigatorList/Investigator` | `FIR`, `IR`, `IRAD` | Every list |
+| `PersonalNameSubject` | `FPS`, `PS` | |
+| `GeneralNote`, `OtherID`, `NumberOfReferences`, `CoiStatement` | `GN`, `OID`, `RF`, `COI` | |
+| `VernacularTitle` | `TT` | |
+| `PublicationStatus` | `PST` | |
+| `ArticleId` (other than PubMed and PMC IDs) | `AID`, `MID` | `10.1056/NEJMoa2021436 [doi]` |
+| `CollectionTitle`, `VolumeTitle`, `Edition`, `LocationLabel` (books) | `CTI`, `VTI`, `EN`, `CP` | |
+
+### Entities and Validation
+
+- Only the predefined entities (`&amp;`, `&lt;`, …) and character references (`&#x2013;`) are resolved. Entities declared in a DTD are never expanded; a reference to one is a syntax error.
+- Malformed XML, a root element other than `<PubmedArticleSet>`, input truncated inside a record, and elements nested more than 128 levels deep are syntax errors.
+- A record without a title is kept, with `citation.title` empty.
 
 ## EndNote XML Format
 
@@ -233,7 +310,7 @@ EndNote Tagged format is a line-oriented export where each field starts with a p
 | `%Q` | Title fallback | Used when `%T` is absent |
 | `%J`, `%B`, `%S` | Journal / source title | Priority: `%J` then `%B` then `%S` |
 | `%D` | Year | Fallback year-only date source |
-| `%8` | Date | Preferred when parseable |
+| `%8` | Date | Preferred when parseable; see [Date Normalization](#date-normalization) |
 | `%V` | Volume | |
 | `%N` | Issue | |
 | `%P` | Pages | Page formatting reused from shared utilities |
@@ -284,7 +361,7 @@ BibTeX / BibLaTeX uses `@type{key, field = value, ...}` entries with quoted, bra
 | `journal` | `journal` fallback | Used when `journaltitle` is absent |
 | `booktitle` | `journal` fallback | Used when no journal fields are present |
 | `shortjournal`, `journalabbr` | `journal_abbr` | First non-empty value wins |
-| `date` | `date` | Supports `YYYY`, `YYYY-MM`, and `YYYY-MM-DD` |
+| `date` | `date` | Any form in [Date Normalization](#date-normalization), such as `YYYY`, `YYYY-MM`, `YYYY-MM-DD` |
 | `year` + `month` | `date` fallback | `month` accepts numeric or month-name tokens |
 | `volume` | `volume` | |
 | `number`, `issue` | `issue` | `number` takes priority |
@@ -353,9 +430,9 @@ Results in 3 separate authors.
 
 ## ICTRP XML Format
 
-`IctrpXmlParser` is the preferred parser for WHO ICTRP exports. It exists to
-replace the older CSV-based ingestion path, which can lose field alignment when
-real-world ICTRP CSV rows overflow their header width. The XML parser reads each
+`IctrpXmlParser` is the parser for WHO ICTRP exports. It replaced the older
+CSV-based ingestion path (removed in 0.10), which could lose field alignment when
+real-world ICTRP CSV rows overflowed their header width. The XML parser reads each
 `<Trial>` record into one `Citation` and preserves the existing ICTRP
 normalization rules wherever the XML and CSV exports overlap.
 
@@ -453,59 +530,6 @@ before generic EndNote XML detection.
 
 ---
 
-## ICTRP CSV Format
-
-`IctrpCsvParser` remains available for backward compatibility, but it is now a
-deprecated compatibility path. New ICTRP ingestion should prefer
-`IctrpXmlParser`.
-
-The CSV parser still exists because older integrations may already depend on it,
-and `detect_and_parse()` continues to recognize ICTRP CSV input. The field
-mapping is intentionally aligned with the XML parser so both formats produce the
-same core `Citation` data where the source fields overlap.
-
-### CSV Mapping Baseline
-
-| ICTRP CSV Column | Citation field | Behavior |
-|------------------|----------------|----------|
-| `TrialID` | `accession_number` | Required |
-| `Scientific title` | `title` | Primary title |
-| `Public title` | `title` fallback | Used only when `Scientific title` is missing |
-| `Date registration3` | `date` | Preferred source |
-| `Date registration` | `date` fallback | Used when `Date registration3` is absent or unparseable |
-| `Primary sponsor` | `publisher` | Primary sponsor name |
-| `Study type` | `citation_type` | Appended after `Clinical Trial` when distinct |
-| `web address` | `urls` | Deduplicated with other result URLs |
-| `results url link` | `urls` | Deduplicated with other result URLs |
-| `results url protocol` | `urls` | Deduplicated with other result URLs |
-
-### Compatibility Notes
-
-- `authors` stays empty here for the same reason as XML.
-- Remaining non-empty ICTRP CSV columns are preserved in `extra_fields`.
-- CSV auto-detection remains enabled for backward compatibility.
-- If both `Scientific title` and `Public title` are absent, parsing still
-  succeeds and `citation.title` is left empty.
-- XML should be preferred for new pipelines because malformed ICTRP CSV exports
-  can still contain row-shape issues that do not exist in the XML release.
-
-When enabled, the parser automatically detects:
-- **Delimiter**: comma, semicolon, or tab
-- **Header row**: Checks first row for known field names
-
-### Extra Fields
-
-Unrecognized columns are preserved in `extra_fields` HashMap:
-
-```csv
-Title,Author,Custom Field
-Paper,Smith,Custom Value
-```
-
-`citation.extra_fields["Custom Field"] = ["Custom Value"]`
-
----
-
 ## Common Transformations
 
 ### DOI Normalization
@@ -526,6 +550,18 @@ All page values are normalized through `format_page_numbers()`:
 1. Normalize known Unicode dash variants to ASCII `-`
 2. Expand shortened end pages like `1234-45` to `1234-1245`
 3. Preserve non-range values when they are not parseable as a page span
+
+### Date Normalization
+
+The RIS, EndNote Tagged, BibTeX and CSV parsers read free-text dates the same way:
+
+| Form | Examples | Result |
+|------|----------|--------|
+| Year first, separated by `/`, `-`, `.` or a space | `2023/05/30/Christmas edition`, `2023-05-30`, `2026.02`, `2023 May 30` | Year, month and day; text after the day is ignored |
+| Month as a word | `May 30, 2023`, `30 May 2023`, `Feb. 2026` | Year, month and day |
+| Anything else with a four-digit year | `c2019`, `[2019]`, `Spring 2019`, `12/05/2023` | Year only (`12/05/2023` could be May or December) |
+
+An invalid month ends the date at the year (`2023/13/45` → 2023). Text with no four-digit year (`n.d.`) is not a date.
 
 ### ISSN Splitting
 

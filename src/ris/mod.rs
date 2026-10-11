@@ -195,6 +195,24 @@ ER  -"#;
     }
 
     #[test]
+    fn test_parse_dotted_publication_year() {
+        let input = r#"TY  - JOUR
+TI  - Test Article
+PY  - 2026.02
+ER  -"#;
+
+        let citation = RisParser::new().parse(input).unwrap().remove(0);
+        assert_eq!(
+            citation.date,
+            Some(crate::Date {
+                year: 2026,
+                month: Some(2),
+                day: None
+            })
+        );
+    }
+
+    #[test]
     fn test_id_remains_in_extra_fields_when_an_present() {
         let input = r#"TY  - JOUR
 TI  - Test Article

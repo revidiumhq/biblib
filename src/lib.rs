@@ -10,9 +10,9 @@
 //!
 //! # What You Get
 //!
-//! - Dedicated parsers for RIS, PubMed / MEDLINE, EndNote XML, ICTRP XML,
-//!   EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), generic CSV, and
-//!   ICTRP CSV exports
+//! - Dedicated parsers for RIS, PubMed / MEDLINE (`.nbib` and XML), EndNote
+//!   XML, ICTRP XML, EndNote Tagged (`.enw`), BibTeX / BibLaTeX (`.bib`), and
+//!   generic CSV
 //! - A shared [`Citation`] output type with normalized identifiers such as DOI,
 //!   PMID, PMCID, and `accession_number`
 //! - Preservation of source-specific leftovers through `extra_fields`
@@ -42,12 +42,13 @@
 //! ```rust
 //! use biblib::{
 //!     BibParser, CitationParser, EndNoteXmlParser, EnwParser, IctrpXmlParser, PubMedParser,
-//!     RisParser,
+//!     PubMedXmlParser, RisParser,
 //! };
 //! use biblib::csv::CsvParser;
 //!
 //! let _ris = RisParser::new();
 //! let _pubmed = PubMedParser::new();
+//! let _pubmed_xml = PubMedXmlParser::new();
 //! let _endnote = EndNoteXmlParser::new();
 //! let _ictrp_xml = IctrpXmlParser::new();
 //! let _enw = EnwParser::new();
@@ -57,11 +58,9 @@
 //!
 //! # Auto-Detection
 //!
-//! [`detect_and_parse`] currently auto-detects RIS, PubMed, ICTRP XML,
-//! EndNote XML, EndNote Tagged, BibTeX / BibLaTeX, and ICTRP CSV. ICTRP XML
-//! is the preferred ICTRP ingestion path; ICTRP CSV remains for backward
-//! compatibility. Generic CSV remains explicit because header mapping is
-//! application-specific.
+//! [`detect_and_parse`] currently auto-detects RIS, PubMed, PubMed XML, ICTRP
+//! XML, EndNote XML, EndNote Tagged, and BibTeX / BibLaTeX. Generic CSV remains
+//! explicit because header mapping is application-specific.
 //!
 //! ```rust
 //! use biblib::detect_and_parse;
@@ -79,7 +78,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! biblib = { version = "0.9", default-features = false, features = ["ris", "csv"] }
+//! biblib = { version = "0.10", default-features = false, features = ["ris", "csv"] }
 //! ```
 //!
 //! Available public features:
@@ -163,6 +162,8 @@ pub mod enw;
 pub mod error;
 #[cfg(feature = "pubmed")]
 pub mod pubmed;
+#[cfg(feature = "xml")]
+pub mod pubmed_xml;
 #[cfg(feature = "ris")]
 pub mod ris;
 
@@ -170,8 +171,7 @@ pub mod ris;
 #[cfg(feature = "bib")]
 pub use bib::BibParser;
 #[cfg(feature = "csv")]
-#[allow(deprecated)]
-pub use csv::{CsvParser, IctrpCsvParser};
+pub use csv::CsvParser;
 #[cfg(feature = "dedupe")]
 pub use dedupe::{DuplicateGroup, OwnedDuplicateGroup};
 #[cfg(feature = "diagnostics")]
@@ -185,10 +185,12 @@ pub use error::{CitationError, ParseError, SourceSpan, ValueError};
 pub use ictrp::xml::IctrpXmlParser;
 #[cfg(feature = "pubmed")]
 pub use pubmed::PubMedParser;
+#[cfg(feature = "xml")]
+pub use pubmed_xml::PubMedXmlParser;
 #[cfg(feature = "ris")]
 pub use ris::RisParser;
 
-#[cfg(any(feature = "csv", feature = "xml"))]
+#[cfg(feature = "xml")]
 mod ictrp;
 mod regex;
 mod utils;
@@ -200,16 +202,20 @@ pub mod ictrp_xml {
 }
 
 /// Citation format types supported by the library.
+///
+/// More formats may be added without a breaking release, so a `match` on
+/// this enum needs a wildcard arm.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum CitationFormat {
     Ris,
     PubMed,
+    PubMedXml,
     EndNoteXml,
     IctrpXml,
     Enw,
     Bib,
     Csv,
-    IctrpCsv,
     Unknown,
 }
 
@@ -219,12 +225,12 @@ impl CitationFormat {
         match self {
             CitationFormat::Ris => "RIS",
             CitationFormat::PubMed => "PubMed",
+            CitationFormat::PubMedXml => "PubMed XML",
             CitationFormat::EndNoteXml => "EndNote XML",
             CitationFormat::IctrpXml => "ICTRP XML",
             CitationFormat::Enw => "EndNote Tagged",
             CitationFormat::Bib => "BibTeX / BibLaTeX",
             CitationFormat::Csv => "CSV",
-            CitationFormat::IctrpCsv => "ICTRP CSV",
             CitationFormat::Unknown => "Unknown",
         }
     }
@@ -383,6 +389,16 @@ pub fn detect_and_parse(
             .map_err(CitationError::Parse);
     }
 
+    // Before the EndNote XML fallback below, which takes any other `<?xml` input.
+    #[cfg(feature = "xml")]
+    if pubmed_xml::looks_like_pubmed_xml(content) {
+        let parser = PubMedXmlParser::new();
+        return parser
+            .parse(content)
+            .map(|citations| (citations, CitationFormat::PubMedXml))
+            .map_err(CitationError::Parse);
+    }
+
     if trimmed.starts_with("<?xml") || trimmed.starts_with("<xml>") {
         // EndNote XML format
         #[cfg(feature = "xml")]
@@ -442,16 +458,6 @@ pub fn detect_and_parse(
             .map_err(CitationError::Parse);
     }
 
-    #[cfg(feature = "csv")]
-    if csv::looks_like_ictrp_csv(content) {
-        #[allow(deprecated)]
-        let parser = IctrpCsvParser::new();
-        return parser
-            .parse(content)
-            .map(|citations| (citations, CitationFormat::IctrpCsv))
-            .map_err(CitationError::Parse);
-    }
-
     Err(CitationError::UnknownFormat)
 }
 
@@ -508,6 +514,25 @@ FAU - Smith, John"#;
         let (citations, format) = detect_and_parse(content).unwrap();
         assert_eq!(format, CitationFormat::EndNoteXml);
         assert_eq!(citations[0].title, "Test Title");
+    }
+
+    #[cfg(feature = "xml")]
+    #[test]
+    fn test_detect_and_parse_pubmed_xml() {
+        let content = r#"<?xml version="1.0" ?>
+<!DOCTYPE PubmedArticleSet PUBLIC "-//NLM//DTD PubMedArticle, 1st January 2025//EN" "https://dtd.nlm.nih.gov/ncbi/pubmed/out/pubmed_250101.dtd">
+<PubmedArticleSet>
+<PubmedArticle><MedlineCitation><PMID>1</PMID><Article><ArticleTitle>Test Title</ArticleTitle></Article></MedlineCitation></PubmedArticle>
+</PubmedArticleSet>"#;
+
+        let (citations, format) = detect_and_parse(content).unwrap();
+        assert_eq!(format, CitationFormat::PubMedXml);
+        assert_eq!(citations[0].title, "Test Title");
+        assert_eq!(citations[0].pmid.as_deref(), Some("1"));
+
+        // Without an XML declaration, too.
+        let (_, format) = detect_and_parse("<PubmedArticleSet></PubmedArticleSet>").unwrap();
+        assert_eq!(format, CitationFormat::PubMedXml);
     }
 
     #[cfg(feature = "xml")]
@@ -599,24 +624,6 @@ FAU - Smith, John"#;
         let content = "Some random content\nthat doesn't match\nany known format";
         let result = detect_and_parse(content);
         assert!(matches!(result, Err(CitationError::UnknownFormat)));
-    }
-
-    #[cfg(feature = "csv")]
-    #[allow(deprecated)]
-    #[test]
-    fn test_detect_and_parse_ictrp_csv() {
-        let content = concat!(
-            "TrialID,Public title,Scientific title,Date registration,Date registration3,",
-            "Source Register\n",
-            "NCT00000001,Public,Scientific,01/05/2026,20260501,ClinicalTrials.gov\n"
-        );
-
-        let (citations, format) = detect_and_parse(content).unwrap();
-        assert_eq!(format, CitationFormat::IctrpCsv);
-        assert_eq!(
-            citations[0].accession_number.as_deref(),
-            Some("NCT00000001")
-        );
     }
 }
 
