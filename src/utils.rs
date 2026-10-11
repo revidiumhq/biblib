@@ -25,6 +25,7 @@ static ISSN_SPLIT_REGEX: std::sync::LazyLock<crate::regex::Regex> =
     feature = "ris",
     feature = "enw",
     feature = "bib",
+    feature = "pubmed",
     feature = "dedupe"
 ))]
 pub fn format_page_numbers(page_range: &str) -> String {
@@ -89,6 +90,7 @@ pub fn format_page_numbers(page_range: &str) -> String {
     feature = "ris",
     feature = "enw",
     feature = "bib",
+    feature = "pubmed",
     feature = "dedupe"
 ))]
 fn normalize_page_dash(ch: char) -> char {
@@ -106,6 +108,7 @@ fn normalize_page_dash(ch: char) -> char {
     feature = "ris",
     feature = "enw",
     feature = "bib",
+    feature = "pubmed",
     feature = "dedupe"
 ))]
 fn split_prefix_and_number(input: &str) -> (String, Option<String>) {
@@ -372,6 +375,24 @@ pub fn parse_pubmed_date(date_str: &str) -> Option<Date> {
     }
 
     Some(Date { year, month, day })
+}
+
+/// [`parse_pubmed_date`], falling back to the first four-digit year of a
+/// free-text date such as "1999-2000", "Summer 2001" or "1998 Dec-1999 Jan"
+/// (MEDLINE's `MedlineDate`).
+#[cfg(any(feature = "pubmed", feature = "xml"))]
+pub fn parse_pubmed_date_lenient(date_str: &str) -> Option<Date> {
+    parse_pubmed_date(date_str).or_else(|| {
+        date_str
+            .split(|c: char| !c.is_ascii_digit())
+            .find(|token| token.len() == 4)
+            .and_then(|token| token.parse().ok())
+            .map(|year| Date {
+                year,
+                month: None,
+                day: None,
+            })
+    })
 }
 
 /// Parses RIS format dates (e.g., "1999/12/25/Christmas edition", "2023/05/30", "2023")
@@ -653,6 +674,29 @@ pub(crate) const UTF8_BOM: char = '\u{feff}';
 #[cfg(feature = "xml")]
 pub(crate) fn xml_reader_position<B>(reader: &quick_xml::Reader<B>, content: &str) -> usize {
     utf8_bom_len(content) + reader.buffer_position() as usize
+}
+
+/// The character a `&...;` reference in XML text stands for: a character
+/// reference such as `&#x3B1;`, or one of the five predefined entities.
+///
+/// A DTD's entities are never expanded, so a reference to one is an error;
+/// the message names the reference.
+#[cfg(feature = "xml")]
+pub(crate) fn resolve_xml_reference(
+    reference: &quick_xml::events::BytesRef,
+) -> Result<char, String> {
+    if let Some(ch) = reference.resolve_char_ref().map_err(|e| e.to_string())? {
+        return Ok(ch);
+    }
+    let name = reference.decode().map_err(|e| e.to_string())?;
+    match name.as_ref() {
+        "lt" => Ok('<'),
+        "gt" => Ok('>'),
+        "amp" => Ok('&'),
+        "apos" => Ok('\''),
+        "quot" => Ok('"'),
+        other => Err(format!("unsupported entity reference &{};", other)),
+    }
 }
 
 /// Converts a byte offset from the XML reader into an approximate line number.

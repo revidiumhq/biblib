@@ -113,6 +113,9 @@ impl TryFrom<RawRisData> for crate::Citation {
     type Error = crate::error::ParseError;
 
     fn try_from(mut raw: RawRisData) -> Result<Self, Self::Error> {
+        let is_chapter = raw
+            .get_first(&RisTag::Type)
+            .is_some_and(|ty| ty.trim().eq_ignore_ascii_case("CHAP"));
         let mut citation_type: Vec<String> = raw
             .remove(&RisTag::Type)
             .unwrap_or_default()
@@ -127,7 +130,7 @@ impl TryFrom<RawRisData> for crate::Citation {
             }
         }
         let title = Self::extract_title(&mut raw);
-        let (journal, journal_abbr) = Self::extract_journal_info(&mut raw);
+        let (journal, journal_abbr) = Self::extract_journal_info(&mut raw, is_chapter);
         let date = Self::extract_date(&mut raw);
         let (volume, issue, pages) = Self::extract_publication_details(&mut raw);
         let (doi, urls) = Self::extract_doi_and_urls(&mut raw);
@@ -194,40 +197,98 @@ impl crate::Citation {
     }
 
     /// Extract journal information using priority-based selection.
-    fn extract_journal_info(raw: &mut RawRisData) -> (Option<String>, Option<String>) {
-        let journal = raw.get_best_journal();
+    ///
+    /// In a chapter (`CHAP`) record T2 is the book title, so it comes first.
+    /// Tags whose value was not used, such as a translated title in T2 or a
+    /// full source citation in SO, are kept in `extra_fields`.
+    fn extract_journal_info(
+        raw: &mut RawRisData,
+        is_chapter: bool,
+    ) -> (Option<String>, Option<String>) {
+        let book_title = is_chapter
+            .then(|| raw.get_first(&RisTag::SecondaryTitle))
+            .flatten()
+            .filter(|title| !title.trim().is_empty())
+            .cloned();
+        let journal = book_title.or_else(|| raw.get_best_journal());
         let journal_abbr = raw.get_best_journal_abbr();
 
-        // Clean up journal data
-        raw.remove(&RisTag::JournalFull);
-        raw.remove(&RisTag::JournalFullAlternative);
-        raw.remove(&RisTag::JournalAbbreviation);
-        raw.remove(&RisTag::JournalAbbreviationAlternative);
-        raw.remove(&RisTag::SecondaryTitle);
-        raw.remove(&RisTag::Source);
+        let journal_tags = [
+            RisTag::JournalFull,
+            RisTag::JournalFullAlternative,
+            RisTag::Source,
+            RisTag::SecondaryTitle,
+        ];
+        let abbr_tags = [
+            RisTag::JournalAbbreviation,
+            RisTag::JournalAbbreviationAlternative,
+        ];
+        Self::remove_values_equal_to(raw, &journal_tags, journal.as_deref());
+        Self::remove_values_equal_to(raw, &abbr_tags, journal_abbr.as_deref());
 
         (journal, journal_abbr)
     }
 
+    /// Remove the values of `tags` that match `used` (ignoring case and
+    /// surrounding whitespace), and blank values; the rest stay for
+    /// `extra_fields`.
+    fn remove_values_equal_to(raw: &mut RawRisData, tags: &[RisTag], used: Option<&str>) {
+        let used = used.map(str::trim);
+        for tag in tags {
+            if let Some(mut values) = raw.remove(tag) {
+                values.retain(|value| {
+                    let value = value.trim();
+                    !value.is_empty() && used.is_none_or(|used| !value.eq_ignore_ascii_case(used))
+                });
+                if !values.is_empty() {
+                    raw.data.insert(tag.clone(), values);
+                }
+            }
+        }
+    }
+
     /// Extract date from RIS data with validation.
     ///
-    /// PY, then Y1, then DA: some exporters write the date only in DA.
+    /// The first of PY, Y1 and DA that parses is used: some exporters write
+    /// the date only in DA. When the year comes from PY or Y1 and DA has the
+    /// same year, DA's month and day fill in what PY or Y1 lacks. DA stays in
+    /// `extra_fields` when it adds something the date does not have.
     fn extract_date(raw: &mut RawRisData) -> Option<crate::Date> {
-        // Parse date from available date fields with validation
-        let date = raw
-            .get_first(&RisTag::PublicationYear)
-            .or_else(|| raw.get_first(&RisTag::DatePrimary))
-            .or_else(|| raw.get_first(&RisTag::Date))
-            .and_then(|date_str| {
-                crate::utils::parse_ris_date(date_str)
-                // Note: Invalid dates are silently ignored to avoid breaking parsing
-                // TODO: Collect warnings
-            });
+        let parse = |raw: &RawRisData, tag: &RisTag| {
+            raw.get_first(tag)
+                .and_then(|value| crate::utils::parse_ris_date(value))
+            // Note: Invalid dates are silently ignored to avoid breaking parsing
+            // TODO: Collect warnings
+        };
+        let primary =
+            parse(raw, &RisTag::PublicationYear).or_else(|| parse(raw, &RisTag::DatePrimary));
+        let da = parse(raw, &RisTag::Date);
+
+        let date = match (primary, &da) {
+            (Some(mut date), Some(da)) if da.year == date.year && date.month.is_none() => {
+                date.month = da.month;
+                date.day = da.day;
+                Some(date)
+            }
+            (Some(date), _) => Some(date),
+            (None, da) => da.clone(),
+        };
+        // DA is used, or says nothing the date does not.
+        let da_covered = match (&date, &da) {
+            (Some(date), Some(da)) => {
+                da.year == date.year
+                    && da.month.is_none_or(|month| date.month == Some(month))
+                    && da.day.is_none_or(|day| date.day == Some(day))
+            }
+            _ => false,
+        };
 
         raw.remove(&RisTag::PublicationYear);
         raw.remove(&RisTag::DatePrimary);
         raw.remove(&RisTag::DateAccess);
-        raw.remove(&RisTag::Date);
+        if da_covered {
+            raw.remove(&RisTag::Date);
+        }
 
         date
     }
@@ -309,15 +370,30 @@ impl crate::Citation {
     /// Extract normalized identifiers while preserving raw reference IDs.
     ///
     /// C2 holds a PMCID in most exports, but several exporters write the PMID
-    /// there instead, so an all-digit C2 value is read as the PMID.
+    /// there instead, so an all-digit C2 value is read as the PMID. Other C2
+    /// values are kept in `extra_fields`.
     fn extract_identifiers(raw: &mut RawRisData) -> (Option<String>, Option<String>) {
-        let values = raw.remove(&RisTag::PmcId).unwrap_or_default();
-        let pmc_id = values.iter().find(|s| s.contains("PMC")).cloned();
-        let pmid = values
-            .iter()
-            .map(|s| s.trim())
-            .find(|s| !s.is_empty() && s.len() <= 9 && s.bytes().all(|b| b.is_ascii_digit()))
-            .map(str::to_string);
+        let mut pmc_id = None;
+        let mut pmid = None;
+        let mut unused = Vec::new();
+        for value in raw.remove(&RisTag::PmcId).unwrap_or_default() {
+            let trimmed = value.trim();
+            if pmc_id.is_none() && trimmed.contains("PMC") {
+                pmc_id = Some(trimmed.to_string());
+            } else if pmid.is_none()
+                && !trimmed.is_empty()
+                && trimmed.len() <= 9
+                && trimmed.bytes().all(|b| b.is_ascii_digit())
+            {
+                pmid = Some(trimmed.to_string());
+            } else if !trimmed.is_empty() {
+                unused.push(value);
+            }
+        }
+        // Anything else, such as an NIHMS manuscript ID, stays in `extra_fields`.
+        if !unused.is_empty() {
+            raw.data.insert(RisTag::PmcId, unused);
+        }
 
         (pmid, pmc_id)
     }
@@ -640,12 +716,66 @@ mod tests {
         );
         assert!(!citation.extra_fields.contains_key("DA"));
 
-        // PY wins over DA.
+        // PY wins over DA, and a DA with another year is kept.
         let mut raw = RawRisData::new();
         raw.add_data(RisTag::PublicationYear, "2019".to_string());
         raw.add_data(RisTag::Date, "2021/03/04".to_string());
         let citation: crate::Citation = raw.try_into().unwrap();
         assert_eq!(citation.date.map(|d| d.year), Some(2019));
+        assert_eq!(citation.extra_fields["DA"], vec!["2021/03/04"]);
+    }
+
+    #[test]
+    fn test_da_fills_in_month_and_day_of_py() {
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::PublicationYear, "2019".to_string());
+        raw.add_data(RisTag::Date, "2019/03/04".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(
+            citation.date,
+            Some(crate::Date {
+                year: 2019,
+                month: Some(3),
+                day: Some(4)
+            })
+        );
+        assert!(!citation.extra_fields.contains_key("DA"));
+    }
+
+    #[test]
+    fn test_da_is_used_when_py_does_not_parse() {
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::PublicationYear, "n.d.".to_string());
+        raw.add_data(RisTag::Date, "2021/03/04".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.date.map(|d| d.year), Some(2021));
+        assert!(!citation.extra_fields.contains_key("DA"));
+    }
+
+    #[test]
+    fn test_unused_journal_tags_are_kept() {
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::JournalFull, "J".to_string());
+        raw.add_data(RisTag::JournalFullAlternative, "j".to_string());
+        raw.add_data(RisTag::Source, "J. 2020;12(3):45-67".to_string());
+        raw.add_data(RisTag::SecondaryTitle, "Titre traduit".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.journal.as_deref(), Some("J"));
+        // JO repeats the journal, so it is dropped.
+        assert!(!citation.extra_fields.contains_key("JO"));
+        assert_eq!(citation.extra_fields["SO"], vec!["J. 2020;12(3):45-67"]);
+        assert_eq!(citation.extra_fields["T2"], vec!["Titre traduit"]);
+    }
+
+    #[test]
+    fn test_chapter_journal_is_book_title() {
+        let mut raw = RawRisData::new();
+        raw.add_data(RisTag::Type, "CHAP".to_string());
+        raw.add_data(RisTag::SecondaryTitle, "The Book".to_string());
+        raw.add_data(RisTag::JournalFullAlternative, "Series".to_string());
+        let citation: crate::Citation = raw.try_into().unwrap();
+        assert_eq!(citation.journal.as_deref(), Some("The Book"));
+        assert_eq!(citation.extra_fields["JO"], vec!["Series"]);
     }
 
     #[test]
@@ -672,9 +802,13 @@ mod tests {
 
         let mut raw = RawRisData::new();
         raw.add_data(RisTag::PmcId, "1234567890".to_string());
-        raw.add_data(RisTag::PmcId, "12a".to_string());
+        raw.add_data(RisTag::PmcId, "NIHMS123456".to_string());
         let citation: crate::Citation = raw.try_into().unwrap();
         assert_eq!(citation.pmid, None);
         assert_eq!(citation.pmc_id, None);
+        assert_eq!(
+            citation.extra_fields["C2"],
+            vec!["1234567890", "NIHMS123456"]
+        );
     }
 }

@@ -215,7 +215,8 @@ impl RisTag {
     /// 2. JO (Journal Full Alternative) - alternative full name
     /// 3. SO (Source) - journal name in some Ovid and Web of Science exports
     /// 4. T2 (Secondary Title) - last, because Ovid exports put a translated or
-    ///    secondary title there; it still names the book of a `CHAP` record
+    ///    secondary title there. In a `CHAP` record T2 is the book title, and
+    ///    the RIS parser takes it first.
     pub fn journal_priority(&self) -> Option<u8> {
         match self {
             RisTag::JournalFull => Some(1),

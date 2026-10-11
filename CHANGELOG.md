@@ -17,19 +17,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ICTRP CSV parser removed**: `IctrpCsvParser` (deprecated since 0.7) and `CitationFormat::IctrpCsv` are gone. Use the ICTRP XML export with `IctrpXmlParser`, which maps to the same citation fields. `detect_and_parse()` now returns `CitationError::UnknownFormat` for ICTRP CSV input.
 - **`CitationFormat` is now `#[non_exhaustive]`** and has a new `PubMedXml` variant. A `match` on it needs a wildcard arm; future formats will no longer be breaking changes.
 - **RIS journal and date output changes** for some valid files; see the RIS entries under Changed and Fixed.
+- **PubMed (`.nbib`) output now matches the other parsers.** For the same files:
+  - `OT` terms are `keywords` (they were in `extra_fields`).
+  - `CN` group names are authors, in their place in the author list (they were in `extra_fields`).
+  - `ISBN` values are added to `issn`, as in the RIS, BibTeX, EndNote and ENW parsers.
+  - A Bookshelf ID (`AID - NBK1116 [bookaccession]`) is the `accession_number`.
+  - A book with no authors gets its editors (`FED`, or `ED`) as authors, as in the BibTeX parser.
+  - Abbreviated page ranges are expanded (`940-5` → `940-945`), as in every other parser.
+  - The title falls back to `TT` when there is no `TI` or `BTI`.
+  - A free-text `DP` such as `1999-2000` gives its first year; it used to be an error. A `DP` with no year is still an error.
 
 ### Added
 
-- **PubMed XML parser** (`PubMedXmlParser`, `xml` feature): reads PubMed's XML export and E-utilities `efetch` responses, including NCBI Bookshelf books and chapters (`<PubmedBookArticle>`), in document order. Values follow the `.nbib` parser (MeSH as `Descriptor/*Qualifier`, ISSNs as `1234-5678 (Electronic)`, the MEDLINE journal abbreviation, and the `EDAT` / `MHDA` / `CRDT` / `PHST` / `DEP` history dates in `extra_fields`), so the two exports of a search give the same citations; book editors are listed with the authors. `detect_and_parse` recognises it by its `<PubmedArticleSet>` root element; such files were previously handed to the EndNote XML parser and returned zero citations.
+- **PubMed XML parser** (`PubMedXmlParser`, `xml` feature): reads PubMed's XML export and E-utilities `efetch` responses, including NCBI Bookshelf books and chapters (`<PubmedBookArticle>`), in document order. Records are mapped the way the `.nbib` parser maps the same records, so the two exports of a search give the same citations. This was checked field by field on 384 real records fetched in both formats, and a sample is kept as a test. Superscripts are written in parentheses as in MEDLINE (`10(7)`, not `107`), and the data `.nbib` keeps in `extra_fields` (grants, chemicals, comments and errata, investigators, history dates, …) is kept under the same tags and in the same format. A document whose root element is not `<PubmedArticleSet>` is an error. `detect_and_parse` recognises the format by that root element; such files were previously handed to the EndNote XML parser and returned zero citations.
 
 ### Changed
 
-- **RIS journal priority**: the journal is now taken from `JF`, then `JO`, then `SO`, then `T2`. `T2` used to rank above `JO`, so in Ovid exports, which put a translated or secondary title in `T2`, that title became the journal. `T2` still names the book of a `CHAP` record when no other journal tag is present.
-- **RIS `C2` PMIDs**: an all-digit `C2` value is now read as the PMID. Several exporters write the PMID there; it used to be dropped because only values containing `PMC` were kept (as the PMC ID).
+- **RIS journal priority**: the journal is now taken from `JF`, then `JO`, then `SO`, then `T2`. `T2` used to rank above `JO`, so in Ovid exports, which put a translated or secondary title in `T2`, that title became the journal. In a `CHAP` record `T2` is the book title and comes first.
+- **RIS unused journal tags are kept**: a journal tag that was not used, such as a translated title in `T2`, stays in `extra_fields`. These tags used to be dropped.
+- **RIS `C2` PMIDs**: an all-digit `C2` value is now read as the PMID. Several exporters write the PMID there; it used to be dropped because only values containing `PMC` were kept (as the PMC ID). Other `C2` values, such as an NIHMS ID, stay in `extra_fields`.
 
 ### Fixed
 
-- **RIS `DA` and `SO` tags**: a date only in `DA` is now used when `PY` and `Y1` are absent, and a journal only in the non-standard `SO` tag is now used as the journal. Both used to be left in `extra_fields`.
+- **RIS `DA` and `SO` tags**: `DA` is now used when `PY` and `Y1` are absent or do not parse, and it adds the month and day to a year-only `PY` of the same year. A journal only in the non-standard `SO` tag is now used as the journal.
+- **PubMed (`.nbib`) duplicate authors**: an `AU` line whose initials did not follow from the `FAU` line before it was read as a second author. Hyphenated given names ("Chi-Hua" is `CH`), multi-part given names and suffixes (`Schafmeister VJ Jr`) all did this; in a sample of 384 real records, 40 (10%) had extra authors.
 - **EndNote XML text**: entity and character references (`&amp;`, `&#x3B1;`) and CDATA sections were dropped from field text, and spaces between inline `<style>` runs were lost, so `<style>Effect of </style><style>vitamin D</style>` read as `Effect ofvitamin D`. Text is now collected in full and trimmed once per field.
 - **EndNote XML date attributes**: `year`, `month` and `day` attribute values are now unescaped like other attributes.
 - **Panic on ICTRP compact dates**: an 8-byte `Date_registration3` value containing a multi-byte character (e.g. `202é050`) panicked; it is now treated as an invalid date.

@@ -30,22 +30,24 @@ RIS (Research Information Systems) uses two-letter tags to identify fields. Each
 | JF | Journal (full) | Priority 1 for journal name |
 | JO | Journal (alt) | Priority 2 for journal name |
 | SO | Source | Priority 3 for journal name (non-standard; Ovid and Web of Science exports) |
-| T2 | Secondary title | Priority 4 for journal name: Ovid exports put a translated title here, but it still names the book of a `CHAP` record |
+| T2 | Secondary title | Priority 4 for journal name, because Ovid exports put a translated title here. In a `CHAP` record it is the book title and comes first |
 | JA | Journal abbreviation | Priority 1 for abbreviation |
 | J2 | Alt abbreviation | Priority 2 for abbreviation |
-| PY, Y1, DA | Publication date | Priority: `PY`, then `Y1`, then `DA`. Format: `YYYY/MM/DD/extra` |
+| PY, Y1, DA | Publication date | The first of `PY`, `Y1`, `DA` that parses; `DA` adds the month and day to a year-only `PY`. Format: `YYYY/MM/DD/extra` |
 | VL | Volume | |
 | IS | Issue | |
 | SP, EP | Start/End page | Combined into page range |
 | DO | DOI | |
 | AN | Accession number | Mapped to `accession_number` |
-| C2 | PMC ID or PMID | A value containing `PMC` is the PMC ID; an all-digit value (up to 9 digits) is the PMID |
+| C2 | PMC ID or PMID | A value containing `PMC` is the PMC ID; an all-digit value (up to 9 digits) is the PMID; other values stay in `extra_fields` |
 | AB, N2 | Abstract | AB takes priority |
 | KW | Keywords | One per line |
 | SN | ISSN/ISBN | |
 | UR, L1-L4, LK | URLs | All collected |
 | ID | Reference ID | Preserved in `extra_fields` |
 | ER | End of reference | Marks end of record |
+
+Journal tags that are not used, such as a translated title in `T2` or a full source citation in `SO`, stay in `extra_fields`; a tag that repeats the chosen journal name is dropped.
 
 ### Multi-Author Handling
 
@@ -64,11 +66,13 @@ AU  - Smith, J.; Doe, A. & Brown, B.
 
 ### Date Parsing
 
-Dates are parsed from the `PY`, `Y1` or `DA` field (first present, in that order) in format: `YYYY/MM/DD/extra`
+Dates are parsed from the first of `PY`, `Y1` and `DA` that parses, in format: `YYYY/MM/DD/extra`
 
 - Year is required
 - Month and day are optional
 - Extra text after third `/` is ignored
+- When `PY` or `Y1` has only a year and `DA` has the same year, `DA`'s month and day are used (`PY  - 2019` with `DA  - 2019/03/04` gives 2019-03-04)
+- `DA` stays in `extra_fields` when it adds something the date does not have, such as a different year
 
 Examples:
 - `2023/12/25/Christmas edition` → Year: 2023, Month: 12, Day: 25
@@ -111,19 +115,24 @@ PubMed format uses multi-character tags with continuation lines for long values.
 |-----|-------|-------|
 | PMID | PubMed ID | Unique identifier |
 | TI | Title | |
+| TI | Title | Falls back to `BTI` (a whole book), then `TT` |
 | AU | Author (short) | Format: `LastName Initials` |
 | FAU | Full author name | Format: `LastName, FirstName MiddleNames` |
+| CN | Group author | An author with no given name, in its place in the list |
+| FED, ED | Editors | The authors of a book that has no `AU` / `FAU`; otherwise kept in `extra_fields` |
 | AD | Affiliation | Associated with preceding author |
 | JT | Full journal title | |
 | TA | Journal abbreviation | |
-| DP | Publication date | Format: `YYYY MMM DD` |
+| DP | Publication date | Format: `YYYY MMM DD`; a free-text date falls back to its first year |
 | VI | Volume | |
 | IP | Issue | |
-| PG | Pagination | |
+| PG | Pagination | Abbreviated ranges expanded, as in the other parsers |
 | LID | Location ID | May contain DOI |
 | AB | Abstract | |
 | MH | MeSH terms | One per line |
-| IS | ISSN | |
+| OT | Keywords | |
+| IS, ISBN | ISSN | ISBNs after ISSNs, as in the other parsers |
+| AID | Accession number | A Bookshelf ID (`NBK1116 [bookaccession]`) |
 | PMC | PMC ID | |
 
 ### Author Handling
@@ -136,7 +145,7 @@ AU  - Watson JD
 AD  - Cambridge University
 ```
 
-**Deduplication**: When `FAU` immediately precedes a matching `AU`, only one author is created.
+**Deduplication**: The `AU` right after a `FAU` with the same family name is that author's short form, so only one author is created. The initials are not compared: PubMed writes "Chi-Hua" as `CH` and adds suffixes (`Schafmeister VJ Jr`).
 
 **Affiliation assignment**: Affiliations (`AD`) are assigned to the most recently parsed author.
 
@@ -148,6 +157,9 @@ Examples:
 - `2023 Jun 15` → Year: 2023, Month: 6, Day: 15
 - `2023 May` → Year: 2023, Month: 5
 - `2023` → Year: 2023 only
+- `1999-2000`, `Summer 2001` → the first four-digit year
+
+A date with no year at all is an error.
 
 ### DOI Extraction
 
@@ -166,39 +178,66 @@ LID - 10.1234/example [doi]
 
 ## PubMed XML Format
 
-PubMed's XML export and the E-utilities `efetch` response: a `<PubmedArticleSet>` of journal articles (`<PubmedArticle>`) and NCBI Bookshelf books and chapters (`<PubmedBookArticle>`), parsed in document order. Values follow the PubMed (`.nbib`) parser, so the XML and `.nbib` exports of the same search give the same fields.
+PubMed's XML export and the E-utilities `efetch` response: a `<PubmedArticleSet>` of journal articles (`<PubmedArticle>`) and NCBI Bookshelf books and chapters (`<PubmedBookArticle>`), parsed in document order. Records are mapped the way the PubMed (`.nbib`) parser maps the same records, so both exports of a search give the same citations. This is checked against real `efetch` records in both formats.
+
+The exports still differ where their content does: MEDLINE text transliterates to ASCII (`é` → `e`, `≥` → `>/=`), lists the journal's other ISSNs from the NLM catalog, and has the composite `SO` field and `AID` entries that the XML lacks; the XML keeps conflict-of-interest statements (`COI`) and publisher-supplied abstracts in other languages (`OAB`) that MEDLINE text leaves out.
 
 ### Element Mappings
 
 | Element | Field | Notes |
 |---------|-------|-------|
 | `MedlineCitation/PMID` | PMID | `BookDocument/PMID` for books |
-| `ArticleTitle` | Title | Inline markup (`<i>`, `<sup>`) keeps its text in reading order; falls back to `VernacularTitle`, then (books) `BookTitle` |
-| `AuthorList/Author` | Authors | `LastName` + `ForeName` (or `Initials`); `CollectiveName` as the name of a group; `AffiliationInfo/Affiliation` as affiliations. Every list is read, including book editors |
+| `ArticleTitle` | Title | Inline markup keeps its text in reading order, with superscripts and subscripts in parentheses as in MEDLINE (`10<sup>7</sup>` → `10(7)`); falls back to `VernacularTitle`, then (books) `BookTitle`. A chapter title ends with a period, as in `.nbib` |
+| `AuthorList/Author` | Authors | `LastName` + `ForeName` (or `Initials`), then any `Suffix`; `CollectiveName` as the name of a group. Affiliations as `.nbib` writes `AD`, followed by their identifiers (`… UK. ROR: https://ror.org/024mrxd33`). A book's editors are its authors only when it has none; otherwise they are `FED` / `ED` |
 | `Journal/Title` | Journal | |
 | `MedlineJournalInfo/MedlineTA` | Journal abbreviation | Falls back to `Journal/ISOAbbreviation` |
 | `JournalIssue/PubDate` | Date | `Year` / `Month` (name or number) / `Day`, or free-text `MedlineDate` (first year) |
 | `Volume`, `Issue` | Volume, issue | |
-| `Pagination/MedlinePgn` | Pages | As written, like `.nbib` `PG` |
+| `Pagination/MedlinePgn` | Pages | Falls back to `StartPage`-`EndPage`; abbreviated ranges expanded, as in the other parsers |
 | `Journal/ISSN`, `ISSNLinking` | ISSN | As `1533-4406 (Electronic)`, `0028-4793 (Linking)`, like `.nbib` `IS`; `Book/Isbn` for books |
 | `ELocationID[@EIdType="doi"]` | DOI | Falls back to `ArticleIdList/ArticleId[@IdType="doi"]` (never a `ReferenceList` entry) |
 | `ArticleId[@IdType="pmc"]` | PMC ID | |
 | `ArticleId[@IdType="bookaccession"]` | Accession number | Books (`NBK…`) |
-| `Abstract/AbstractText` | Abstract | Labelled sections as `LABEL: text`, joined by spaces |
-| `PublicationType` | Citation type | |
+| `Abstract/AbstractText` | Abstract | Labelled sections as `LABEL: text`, joined by spaces; the placeholder label `UNLABELLED` is left out |
+| `PublicationType` | Citation type | In alphabetical order, as `.nbib` lists `PT`; books add `Book Chapter` or `Book` |
 | `MeshHeading` | MeSH terms | `Descriptor/Qualifier`, `*` marking a major topic, like `.nbib` `MH` |
-| `KeywordList/Keyword` | Keywords | |
+| `KeywordList/Keyword` | Keywords | Every list; their owners as `extra_fields["OTO"]` |
 | `Language` | Language | Several joined with ` AND ` |
 | `Book/Publisher/PublisherName` | Publisher | Books |
 | `Book/BookTitle` | `extra_fields["BTI"]` | For a chapter; a whole book uses it as the title |
 | `Book/CollectionTitle` | `extra_fields["CTI"]` | |
-| `History/PubMedPubDate` | `extra_fields["EDAT"]`, `["MHDA"]`, `["CRDT"]`, `["PHST"]` | As `.nbib` writes them: `2020/12/11 06:00`. `EDAT` from `PubStatus="pubmed"`, `MHDA` from `"medline"`, `CRDT` from `"entrez"`; every date as `PHST` with its status, e.g. `2020/12/11 06:00 [pubmed]` |
+| `History/PubMedPubDate` | `extra_fields["EDAT"]`, `["MHDA"]`, `["CRDT"]`, `["PMCR"]`, `["PHST"]` | As `.nbib` writes them: `2020/12/11 06:00`. `EDAT` from `PubStatus="pubmed"`, `MHDA` from `"medline"`, `CRDT` from `"entrez"`; every date as `PHST` with its status, e.g. `2020/12/11 06:00 [pubmed]`. Books get only `EDAT` and `CRDT` |
 | `ArticleDate[@DateType="Electronic"]` | `extra_fields["DEP"]` | As `20201210` |
+
+Other data is kept in `extra_fields` under its `.nbib` tag and in the `.nbib` format:
+
+| Element | Tag | Format |
+|---------|-----|--------|
+| `MedlineCitation/@Owner`, `@Status` | `OWN`, `STAT` | |
+| `DateCompleted`, `DateRevised` | `DCOM`, `LR` (books: `DRDT`) | `20210301` |
+| `ContributionDate` (books) | `CTDT` | `20190919` |
+| `Abstract/CopyrightInformation` | `CI` | |
+| `OtherAbstract` | `OAB`, `OABL` | Text and language |
+| `Author/Identifier` | `AUID` | `ORCID: 0000-0002-1825-0097` |
+| `DataBank` | `SI` | `ClinicalTrials.gov/NCT04381936` |
+| `Grant` | `GR` | `GrantID/Acronym/Agency/Country` |
+| `MedlineJournalInfo/Country`, `Publisher/PublisherLocation` | `PL` | |
+| `NlmUniqueID` | `JID` | |
+| `Chemical`, `SupplMeshName` | `RN` | `7S5I7G3JQL (Dexamethasone)` |
+| `CitationSubset` | `SB` | |
+| `CommentsCorrections` | `CIN`, `CON`, `EIN`, `EFR`, `RIN`, `ROF`, `ECI`, `UOF`, … | `RefSource PMID: 33045189` |
+| `InvestigatorList/Investigator` | `FIR`, `IR`, `IRAD` | Every list |
+| `PersonalNameSubject` | `FPS`, `PS` | |
+| `GeneralNote`, `OtherID`, `NumberOfReferences`, `CoiStatement` | `GN`, `OID`, `RF`, `COI` | |
+| `VernacularTitle` | `TT` | |
+| `PublicationStatus` | `PST` | |
+| `ArticleId` (other than PubMed and PMC IDs) | `AID`, `MID` | `10.1056/NEJMoa2021436 [doi]` |
+| `CollectionTitle`, `VolumeTitle`, `Edition`, `LocationLabel` (books) | `CTI`, `VTI`, `EN`, `CP` | |
 
 ### Entities and Validation
 
 - Only the predefined entities (`&amp;`, `&lt;`, …) and character references (`&#x2013;`) are resolved. Entities declared in a DTD are never expanded; a reference to one is a syntax error.
-- Malformed XML, input truncated inside a record, and elements nested more than 128 levels deep are syntax errors.
+- Malformed XML, a root element other than `<PubmedArticleSet>`, input truncated inside a record, and elements nested more than 128 levels deep are syntax errors.
 - A record without a title is kept, with `citation.title` empty.
 
 ## EndNote XML Format

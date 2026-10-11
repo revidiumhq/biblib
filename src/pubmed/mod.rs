@@ -407,6 +407,101 @@ AID- 10.1016/j.example.2023.01.001 [doi]
     }
 
     #[test]
+    fn test_abbreviated_page_range_is_expanded() {
+        let citations = PubMedParser::new()
+            .parse("PMID- 1\nPG  - 940-5\n\nPMID- 2\nPG  - e082765\n")
+            .unwrap();
+        assert_eq!(citations[0].pages.as_deref(), Some("940-945"));
+        assert_eq!(citations[1].pages.as_deref(), Some("e082765"));
+    }
+
+    #[test]
+    fn test_free_text_date_falls_back_to_its_year() {
+        let citations = PubMedParser::new()
+            .parse("PMID- 1\nDP  - 1999-2000\n\nPMID- 2\nDP  - Summer 2001\n")
+            .unwrap();
+        let years = citations
+            .iter()
+            .map(|c| c.date.as_ref().map(|d| d.year))
+            .collect_vec();
+        assert_eq!(years, &[Some(1999), Some(2001)]);
+    }
+
+    #[test]
+    fn test_maps_fields_like_other_formats() {
+        // Real tag lines from PMID 32678530 and a GeneReviews chapter.
+        let input = "PMID- 32678530
+TI  - Dexamethasone in Hospitalized Patients with Covid-19.
+FAU - Horby, Peter
+AU  - Horby P
+CN  - RECOVERY Collaborative Group
+FAU - Lim, Wei Shen
+AU  - Lim WS
+OTO - NOTNLM
+OT  - COVID-19
+OT  - dexamethasone
+
+PMID- 31536184
+TI  - Glutaric Acidemia Type 1.
+BTI - GeneReviews((R))
+FED - Adam, Margaret P
+ED  - Adam MP
+FAU - Larson, Austin
+AU  - Larson A
+ISBN- 9780000000001
+AID - NBK546575 [bookaccession]
+
+PMID- 20301295
+BTI - GeneReviews((R))
+FED - Adam, Margaret P
+ED  - Adam MP
+
+PMID- 1215597
+TI  - [Middle lobe syndrome].
+TT  - Sindrome del lobulo medio.
+";
+        let citations = PubMedParser::new().parse(input).unwrap();
+
+        let article = &citations[0];
+        let names = article
+            .authors
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect_vec();
+        assert_eq!(names, &["Horby", "RECOVERY Collaborative Group", "Lim"]);
+        assert_eq!(article.authors[1].given_name, None);
+        assert!(!article.extra_fields.contains_key("CN"));
+        assert_eq!(article.keywords, &["COVID-19", "dexamethasone"]);
+        assert_eq!(article.extra_fields["OTO"], &["NOTNLM"]);
+
+        // Editors are not authors when there are authors.
+        let chapter = &citations[1];
+        let names = chapter
+            .authors
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect_vec();
+        assert_eq!(names, &["Larson"]);
+        assert_eq!(chapter.extra_fields["FED"], &["Adam, Margaret P"]);
+        assert_eq!(chapter.issn, &["9780000000001"]);
+        assert_eq!(chapter.accession_number.as_deref(), Some("NBK546575"));
+
+        // A book without authors: its editors stand in.
+        let book = &citations[2];
+        assert_eq!(book.title, "GeneReviews((R))");
+        assert_eq!(book.authors[0].name, "Adam");
+        assert_eq!(book.authors[0].given_name.as_deref(), Some("Margaret"));
+        assert!(!book.extra_fields.contains_key("FED"));
+        assert!(!book.extra_fields.contains_key("ED"));
+
+        assert_eq!(citations[3].title, "[Middle lobe syndrome].");
+        let untitled = PubMedParser::new()
+            .parse("PMID- 1\nTT  - Sindrome del lobulo medio.\n")
+            .unwrap();
+        assert_eq!(untitled[0].title, "Sindrome del lobulo medio.");
+    }
+
+    #[test]
     fn test_blank_or_tagless_chunks_are_not_citations() {
         for input in [
             "\nPMID- 1\nTI  - T\n",

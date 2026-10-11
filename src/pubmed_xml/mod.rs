@@ -5,11 +5,21 @@
 //! articles (`<PubmedArticle>`) and NCBI Bookshelf books and chapters
 //! (`<PubmedBookArticle>`).
 //!
-//! Field values follow the PubMed (`.nbib`) parser, so the XML and `.nbib`
-//! exports of the same search give the same citations: publication types in
-//! `citation_type`, MeSH headings as `Descriptor/*Qualifier`, ISSNs as
-//! `1234-5678 (Electronic)`, and the MEDLINE journal abbreviation. Book editors
-//! are listed with the authors.
+//! Records are mapped the way the PubMed (`.nbib`) parser maps the same
+//! records, so both exports of a search give the same citations: MeSH headings
+//! as `Descriptor/*Qualifier`, ISSNs as `1234-5678 (Electronic)`, the MEDLINE
+//! journal abbreviation, superscripts in parentheses (`10(7)`), group authors
+//! in the author list, and a book's editors as its authors only when it has
+//! none. Other data is kept in `extra_fields` under the `.nbib` tag and in its
+//! format: grants as `GR`, chemicals as `RN`, comments and errata as `CIN` /
+//! `EIN`, history dates as `PHST`, and so on.
+//!
+//! The two exports still differ where their content does. MEDLINE text
+//! transliterates to ASCII (`é` → `e`, `≥` → `>/=`), lists the journal's
+//! other ISSNs from the NLM catalog, and has the composite `SO` field and
+//! `AID` entries that the XML does not; the XML keeps conflict-of-interest
+//! statements (`COI`) and publisher-supplied abstracts in other languages
+//! (`OAB`) that MEDLINE text leaves out.
 //!
 //! Only the predefined XML entities and character references are resolved;
 //! entities declared in a DTD are never expanded.
@@ -80,8 +90,9 @@ impl CitationParser for PubMedXmlParser {
     ///
     /// # Errors
     ///
-    /// Returns `ParseError` for malformed XML, input truncated inside a
-    /// record, or a reference to an entity other than the predefined ones.
+    /// Returns `ParseError` for malformed XML, a root element other than
+    /// `<PubmedArticleSet>`, input truncated inside a record, or a reference
+    /// to an entity other than the predefined ones.
     fn parse(&self, input: &str) -> Result<Vec<Citation>, ParseError> {
         parse_pubmed_xml(input)
     }
@@ -135,7 +146,7 @@ mod tests {
         let citations = parse(ARTICLE);
         assert_eq!(citations.len(), 1);
         let c = &citations[0];
-        assert_eq!(c.title, "Effect of E. coli on 13C uptake & more.");
+        assert_eq!(c.title, "Effect of E. coli on (13)C uptake & more.");
         assert_eq!(c.pmid.as_deref(), Some("31000001"));
         assert_eq!(c.pmc_id.as_deref(), Some("PMC6000001"));
         assert_eq!(c.doi.as_deref(), Some("10.1056/NEJMoa1813219"));
@@ -176,6 +187,112 @@ mod tests {
             ]
         );
         assert_eq!(c.keywords, vec!["prevention", "aspirin"]);
+        assert_eq!(c.extra_fields["OTO"], vec!["NOTNLM"]);
+        assert_eq!(c.extra_fields["PL"], vec!["United States"]);
+        assert_eq!(c.extra_fields["JID"], vec!["0255562"]);
+        assert_eq!(c.extra_fields["STAT"], vec!["MEDLINE"]);
+        assert_eq!(c.extra_fields["OWN"], vec!["NLM"]);
+        assert_eq!(c.extra_fields["AID"], vec!["10.1056/NEJMoa1813219 [doi]"]);
+    }
+
+    #[test]
+    fn writes_superscripts_and_subscripts_in_parentheses() {
+        let c = &parse(&ARTICLE.replace(
+            "<ArticleTitle>Effect of <i>E. coli</i> on <sup>13</sup>C uptake &amp; more.</ArticleTitle>",
+            "<ArticleTitle>BMI 35 kg/m<sup>2</sup>, 10<sup>7</sup> cells, H<sub>2</sub>O, Drug<sup>®</sup>.</ArticleTitle>",
+        ))[0];
+        assert_eq!(c.title, "BMI 35 kg/m(2), 10(7) cells, H(2)O, Drug®.");
+    }
+
+    #[test]
+    fn leaves_out_the_unlabelled_label() {
+        let c = &parse(&ARTICLE.replace(
+            "<AbstractText Label=\"BACKGROUND\" NlmCategory=\"BACKGROUND\">",
+            "<AbstractText Label=\"UNLABELLED\" NlmCategory=\"UNASSIGNED\">",
+        ))[0];
+        assert_eq!(
+            c.abstract_text.as_deref(),
+            Some("Why \u{2013} and how. RESULTS: It worked.")
+        );
+    }
+
+    #[test]
+    fn keeps_other_data_under_nbib_tags() {
+        let grants = r#"<GrantList CompleteYN="Y"><Grant><GrantID>R21 AA026954</GrantID><Acronym>AA</Acronym><Agency>NIAAA NIH HHS</Agency><Country>United States</Country></Grant>
+<Grant><Agency>Some Foundation</Agency><Country/></Grant></GrantList>"#;
+        let medline_extra = r#"<ChemicalList><Chemical><RegistryNumber>7S5I7G3JQL</RegistryNumber><NameOfSubstance UI="D003907">Dexamethasone</NameOfSubstance></Chemical></ChemicalList>
+<SupplMeshList><SupplMeshName Type="Organism" UI="C1">Han Chinese people</SupplMeshName></SupplMeshList>
+<CitationSubset>IM</CitationSubset>
+<CommentsCorrectionsList><CommentsCorrections RefType="CommentIn"><RefSource>Lancet. 2020;396:e61.</RefSource><PMID Version="1">33045189</PMID></CommentsCorrections>
+<CommentsCorrections RefType="RetractionIn"><RefSource>Retraction notice.</RefSource></CommentsCorrections></CommentsCorrectionsList>
+<OtherID Source="NASA">76122758</OtherID>
+<InvestigatorList><Investigator><LastName>Lim</LastName><ForeName>Wei Shen</ForeName><Initials>WS</Initials><AffiliationInfo><Affiliation>Nottingham.</Affiliation></AffiliationInfo></Investigator></InvestigatorList>
+<InvestigatorList><Investigator><LastName>Emberson</LastName><ForeName>Jonathan R</ForeName><Initials>JR</Initials></Investigator></InvestigatorList>"#;
+        let xml = ARTICLE
+            .replace(
+                "<Language>eng</Language>",
+                &format!("<Language>eng</Language>{grants}"),
+            )
+            .replace(
+                "</MeshHeadingList>",
+                &format!("</MeshHeadingList>{medline_extra}"),
+            )
+            .replace(
+                "<Initials>JA</Initials>",
+                "<Initials>JA</Initials><Suffix>Jr</Suffix><Identifier Source=\"ORCID\">0000-0002-1825-0097</Identifier>",
+            )
+            .replace(
+                "<Affiliation>Dept A, Univ B.</Affiliation>",
+                "<Affiliation>Dept A, Univ B.</Affiliation><Identifier Source=\"ROR\">https://ror.org/024mrxd33</Identifier>",
+            );
+        let c = &parse(&xml)[0];
+        assert_eq!(
+            c.extra_fields["GR"],
+            vec![
+                "R21 AA026954/AA/NIAAA NIH HHS/United States",
+                "Some Foundation/"
+            ]
+        );
+        assert_eq!(
+            c.extra_fields["RN"],
+            vec!["7S5I7G3JQL (Dexamethasone)", "Han Chinese people"]
+        );
+        assert_eq!(c.extra_fields["SB"], vec!["IM"]);
+        assert_eq!(
+            c.extra_fields["CIN"],
+            vec!["Lancet. 2020;396:e61. PMID: 33045189"]
+        );
+        assert_eq!(c.extra_fields["RIN"], vec!["Retraction notice."]);
+        assert_eq!(c.extra_fields["OID"], vec!["NASA: 76122758"]);
+        // Both investigator lists.
+        assert_eq!(
+            c.extra_fields["FIR"],
+            vec!["Lim, Wei Shen", "Emberson, Jonathan R"]
+        );
+        assert_eq!(c.extra_fields["IR"], vec!["Lim WS", "Emberson JR"]);
+        assert_eq!(c.extra_fields["IRAD"], vec!["Nottingham."]);
+        assert_eq!(c.extra_fields["AUID"], vec!["ORCID: 0000-0002-1825-0097"]);
+        // A suffix follows the given names, and affiliation identifiers
+        // follow the affiliation, as in `.nbib` files.
+        assert_eq!(c.authors[0].middle_name.as_deref(), Some("A Jr"));
+        assert_eq!(
+            c.authors[0].affiliations,
+            vec!["Dept A, Univ B. ROR: https://ror.org/024mrxd33"]
+        );
+    }
+
+    #[test]
+    fn falls_back_to_start_and_end_page() {
+        let c = &parse(&ARTICLE.replace(
+            "<Pagination><MedlinePgn>1101-1110</MedlinePgn></Pagination>",
+            "<Pagination><StartPage>10</StartPage><EndPage>20</EndPage></Pagination>",
+        ))[0];
+        assert_eq!(c.pages.as_deref(), Some("10-20"));
+        let c = &parse(&ARTICLE.replace(
+            "<MedlinePgn>1101-1110</MedlinePgn>",
+            "<MedlinePgn>1939\u{2013}1953</MedlinePgn>",
+        ))[0];
+        assert_eq!(c.pages.as_deref(), Some("1939-1953"));
     }
 
     #[test]
@@ -257,21 +374,28 @@ mod tests {
         );
 
         let chapter = &citations[0];
-        assert_eq!(chapter.title, "Cystic Fibrosis");
+        assert_eq!(chapter.title, "Cystic Fibrosis.");
         assert_eq!(chapter.extra_fields["BTI"], vec!["GeneReviews®"]);
         assert_eq!(chapter.extra_fields["CTI"], vec!["GeneReviews"]);
         assert_eq!(chapter.extra_fields["EDAT"], vec!["2010/03/20 00:00"]);
         assert_eq!(chapter.journal, None);
-        // Chapter authors first, then the book's editors.
+        // The editors are not authors when there are authors.
         let names: Vec<_> = chapter.authors.iter().map(|a| a.name.as_str()).collect();
-        assert_eq!(names, vec!["Author", "Adam"]);
+        assert_eq!(names, vec!["Author"]);
+        assert_eq!(chapter.extra_fields["FED"], vec!["Adam, Margaret P"]);
+        assert_eq!(chapter.extra_fields["ED"], vec!["Adam"]);
+        assert_eq!(chapter.extra_fields["PL"], vec!["Seattle (WA)"]);
+        assert_eq!(chapter.extra_fields["CP"], vec!["Chapter 1"]);
+        assert_eq!(chapter.extra_fields["AID"], vec!["NBK1116 [bookaccession]"]);
+        // Books get EDAT and CRDT, but not PHST, as in `.nbib` files.
+        assert!(!chapter.extra_fields.contains_key("PHST"));
         assert_eq!(chapter.accession_number.as_deref(), Some("NBK1116"));
         assert_eq!(
             chapter.publisher.as_deref(),
             Some("University of Washington, Seattle")
         );
         assert_eq!(chapter.date.as_ref().map(|d| d.year), Some(1993));
-        assert_eq!(chapter.citation_type, vec!["Review"]);
+        assert_eq!(chapter.citation_type, vec!["Review", "Book Chapter"]);
         assert_eq!(
             chapter.abstract_text.as_deref(),
             Some("CLINICAL CHARACTERISTICS: Text.")
@@ -281,6 +405,7 @@ mod tests {
         assert_eq!(book.title, "A Whole Book");
         assert!(!book.extra_fields.contains_key("BTI"));
         assert_eq!(book.authors[0].name, "Writer");
+        assert_eq!(book.citation_type, vec!["Book"]);
         assert_eq!(book.issn, vec!["9780000000001"]);
         assert_eq!(book.doi.as_deref(), Some("10.1000/book"));
         assert_eq!(
@@ -291,6 +416,18 @@ mod tests {
                 day: None
             })
         );
+    }
+
+    #[test]
+    fn editors_are_the_authors_of_a_book_without_authors() {
+        let book = r#"<PubmedBookArticle><BookDocument><PMID>20301295</PMID><Book><BookTitle book="gene">GeneReviews<sup>®</sup></BookTitle>
+<AuthorList Type="editors"><Author><LastName>Adam</LastName><ForeName>Margaret P</ForeName><Initials>MP</Initials></Author></AuthorList></Book>
+<PublicationType>Review</PublicationType></BookDocument></PubmedBookArticle>"#;
+        let c = &parse(book)[0];
+        assert_eq!(c.title, "GeneReviews®");
+        assert_eq!(c.authors[0].name, "Adam");
+        assert!(!c.extra_fields.contains_key("FED"));
+        assert_eq!(c.citation_type, vec!["Review", "Book"]);
     }
 
     #[test]
@@ -318,6 +455,19 @@ mod tests {
     fn empty_set_parses_to_no_citations() {
         assert!(parse("").is_empty());
         assert!(PubMedXmlParser::new().parse("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn rejects_other_xml() {
+        let err = PubMedXmlParser::new()
+            .parse("<?xml version=\"1.0\"?><xml><records><record/></records></xml>")
+            .unwrap_err();
+        assert_eq!(err.format, CitationFormat::PubMedXml);
+        assert!(
+            matches!(&err.error, ValueError::Syntax(m) if m.contains("root element is <xml>")),
+            "{err:?}"
+        );
+        assert!(err.span.is_some());
     }
 
     #[test]

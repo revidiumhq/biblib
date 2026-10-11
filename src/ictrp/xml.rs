@@ -8,7 +8,9 @@ use crate::error::{ParseError, SourceSpan, ValueError, fields};
 use crate::ictrp::{
     dedupe_urls, is_ictrp_url_field, parse_ictrp_compact_date, parse_ictrp_standard_date,
 };
-use crate::utils::{buffer_position_to_line_number, utf8_bom_len, xml_reader_position};
+use crate::utils::{
+    buffer_position_to_line_number, resolve_xml_reference, utf8_bom_len, xml_reader_position,
+};
 use crate::{Citation, CitationFormat, CitationParser};
 use quick_xml::Reader;
 use quick_xml::escape::unescape;
@@ -459,41 +461,14 @@ fn extract_text_with_position<B: BufRead>(
                 })?);
             }
             Ok(Event::GeneralRef(e)) => {
-                if let Some(ch) = e.resolve_char_ref().map_err(|e| {
+                text.push(resolve_xml_reference(&e).map_err(|e| {
                     xml_error(
                         content,
                         current_pos,
                         xml_reader_position(reader, content),
-                        e.to_string(),
+                        e,
                     )
-                })? {
-                    text.push(ch);
-                } else {
-                    let decoded = e.decode().map_err(|e| {
-                        xml_error(
-                            content,
-                            current_pos,
-                            xml_reader_position(reader, content),
-                            e.to_string(),
-                        )
-                    })?;
-
-                    match decoded.as_ref() {
-                        "lt" => text.push('<'),
-                        "gt" => text.push('>'),
-                        "amp" => text.push('&'),
-                        "apos" => text.push('\''),
-                        "quot" => text.push('"'),
-                        other => {
-                            return Err(xml_error(
-                                content,
-                                current_pos,
-                                xml_reader_position(reader, content),
-                                format!("Unsupported entity reference: &{};", other),
-                            ));
-                        }
-                    }
-                }
+                })?);
             }
             Ok(Event::End(e)) if e.name() == QName(closing_tag) => break,
             Ok(Event::Eof) => {
