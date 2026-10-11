@@ -260,7 +260,7 @@ mod bib {
 #[cfg(feature = "xml")]
 mod xml {
     use super::*;
-    use biblib::{CitationParser, EndNoteXmlParser, IctrpXmlParser};
+    use biblib::{CitationParser, EndNoteXmlParser, IctrpXmlParser, PubMedXmlParser};
 
     fn fragment(tags: &'static [&'static str]) -> impl Strategy<Value = String> {
         prop_oneof![
@@ -343,8 +343,70 @@ mod xml {
         "</Primary_sponsor>",
     ];
 
+    const PUBMED_TAGS: &[&str] = &[
+        "<?xml version=\"1.0\" ?>",
+        "<!DOCTYPE PubmedArticleSet PUBLIC \"-//NLM//DTD PubMedArticle//EN\" \"pubmed.dtd\">",
+        "<PubmedArticleSet>",
+        "</PubmedArticleSet>",
+        "<PubmedArticle>",
+        "</PubmedArticle>",
+        "<PubmedBookArticle>",
+        "</PubmedBookArticle>",
+        "<MedlineCitation>",
+        "</MedlineCitation>",
+        "<BookDocument>",
+        "</BookDocument>",
+        "<Book>",
+        "</Book>",
+        "<BookTitle>",
+        "</BookTitle>",
+        "<PMID>",
+        "</PMID>",
+        "<Article>",
+        "</Article>",
+        "<ArticleTitle>",
+        "</ArticleTitle>",
+        "<i>",
+        "</i>",
+        "<AuthorList Type=\"editors\">",
+        "</AuthorList>",
+        "<Author>",
+        "</Author>",
+        "<LastName>",
+        "</LastName>",
+        "<ForeName>",
+        "</ForeName>",
+        "<CollectiveName>",
+        "</CollectiveName>",
+        "<PubDate>",
+        "</PubDate>",
+        "<Year>",
+        "</Year>",
+        "<Month>",
+        "</Month>",
+        "<MedlineDate>",
+        "</MedlineDate>",
+        "<AbstractText Label=\"RESULTS\">",
+        "</AbstractText>",
+        "<MeshHeading>",
+        "</MeshHeading>",
+        "<DescriptorName MajorTopicYN=\"Y\">",
+        "</DescriptorName>",
+        "<ArticleId IdType=\"doi\">",
+        "</ArticleId>",
+        "<ELocationID EIdType=\"doi\"/>",
+        "2019",
+        "Mar",
+        "1998 Dec-1999 Jan",
+    ];
+
     proptest! {
         #![proptest_config(config())]
+
+        #[test]
+        fn pubmed_xml_never_panics(parts in prop::collection::vec(fragment(PUBMED_TAGS), 0..60)) {
+            let _ = PubMedXmlParser::new().parse(&parts.concat());
+        }
 
         #[test]
         fn endnote_never_panics(parts in prop::collection::vec(fragment(ENDNOTE_TAGS), 0..60)) {

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.10.0] - 2026-09-27
+## [0.10.0] - 2026-10-11
 
 ### Breaking
 
@@ -15,9 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Parsed output also changes for valid files, because of the text fixes below: titles and other fields that contain entity references, CDATA or several `<style>` runs now come out complete.
 - **ICTRP CSV parser removed**: `IctrpCsvParser` (deprecated since 0.7) and `CitationFormat::IctrpCsv` are gone. Use the ICTRP XML export with `IctrpXmlParser`, which maps to the same citation fields. `detect_and_parse()` now returns `CitationError::UnknownFormat` for ICTRP CSV input.
+- **`CitationFormat` is now `#[non_exhaustive]`** and has a new `PubMedXml` variant. A `match` on it needs a wildcard arm; future formats will no longer be breaking changes.
+- **RIS journal and date output changes** for some valid files; see the RIS entries under Changed and Fixed.
+
+### Added
+
+- **PubMed XML parser** (`PubMedXmlParser`, `xml` feature): reads PubMed's XML export and E-utilities `efetch` responses, including NCBI Bookshelf books and chapters (`<PubmedBookArticle>`), in document order. Values follow the `.nbib` parser (MeSH as `Descriptor/*Qualifier`, ISSNs as `1234-5678 (Electronic)`, the MEDLINE journal abbreviation, and the `EDAT` / `MHDA` / `CRDT` / `PHST` / `DEP` history dates in `extra_fields`), so the two exports of a search give the same citations; book editors are listed with the authors. `detect_and_parse` recognises it by its `<PubmedArticleSet>` root element; such files were previously handed to the EndNote XML parser and returned zero citations.
+
+### Changed
+
+- **RIS journal priority**: the journal is now taken from `JF`, then `JO`, then `SO`, then `T2`. `T2` used to rank above `JO`, so in Ovid exports, which put a translated or secondary title in `T2`, that title became the journal. `T2` still names the book of a `CHAP` record when no other journal tag is present.
+- **RIS `C2` PMIDs**: an all-digit `C2` value is now read as the PMID. Several exporters write the PMID there; it used to be dropped because only values containing `PMC` were kept (as the PMC ID).
 
 ### Fixed
 
+- **RIS `DA` and `SO` tags**: a date only in `DA` is now used when `PY` and `Y1` are absent, and a journal only in the non-standard `SO` tag is now used as the journal. Both used to be left in `extra_fields`.
 - **EndNote XML text**: entity and character references (`&amp;`, `&#x3B1;`) and CDATA sections were dropped from field text, and spaces between inline `<style>` runs were lost, so `<style>Effect of </style><style>vitamin D</style>` read as `Effect ofvitamin D`. Text is now collected in full and trimmed once per field.
 - **EndNote XML date attributes**: `year`, `month` and `day` attribute values are now unescaped like other attributes.
 - **Panic on ICTRP compact dates**: an 8-byte `Date_registration3` value containing a multi-byte character (e.g. `202é050`) panicked; it is now treated as an invalid date.
